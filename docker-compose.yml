@@ -33,6 +33,7 @@ services:
     volumes:
       - data:/data
       - ./secrets:/secrets:ro
+      - ./.git:/app/.git:ro            # only to tell which version is running, for the update notice
     # Reachable from this server only. On a server that already has a web server, point that one at this port
     # (see deploy/nginx-peakcut.conf). With the "own-https" profile, Caddy below is the web server instead.
     ports: ["127.0.0.1:${PEAKCUT_BIND_PORT:-8765}:8765"]

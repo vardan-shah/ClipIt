@@ -143,6 +143,26 @@ def youtube_words(url: str):
     return _caption_words(json.loads(raw)), key.replace("-orig", "")
 
 
+def youtube_english_words(url: str):
+    """YouTube's English captions of a video spoken in another language: ones a person wrote if there are any,
+    otherwise YouTube's own translation of its transcript. Word list like youtube_words, or None."""
+    if not is_youtube(url):
+        return None
+    import json
+    with _youtube_guard(url), _ydl({}) as ydl:
+        i = ydl.extract_info(url, download=False)
+        tracks = []
+        for group in (i.get("subtitles") or {}, i.get("automatic_captions") or {}):
+            for k in ("en", "en-US", "en-GB"):
+                tracks.append(next((f for f in group.get(k) or [] if f.get("ext") == "json3" and f.get("url")), None))
+        track = next((t for t in tracks if t), None)
+        if not track:
+            return None
+        raw = ydl.urlopen(track["url"]).read(40_000_000)
+    words = _caption_words(json.loads(raw))
+    return words or None
+
+
 def _caption_words(data: dict) -> list:
     out = []
     for ev in data.get("events") or []:

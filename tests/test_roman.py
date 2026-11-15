@@ -28,6 +28,9 @@ out = brain.fix_caption_words(src, "test")
 check("without AI, Hindi captions come out in Roman letters", text(out) == "are chuna jo usko laga", text(out))
 check("...with every word at its own time", [(w["s"], w["e"]) for w in out] == [(w["s"], w["e"]) for w in src])
 check("short clips are spelled out too", text(brain.fix_caption_words(ws("जो उसको"), "")) == "jo usko")
+out = text(brain.fix_caption_words(ws("یار یہ کیا ہے بھائی"), ""))
+check("without AI, Urdu captions come out in Roman letters too", out == "yaar ye kya hai bhai", out)
+check("Urdu punctuation and digits become plain ones", roman.to_roman("ہاں، ۱۰۰۰ روپے؟") == "haan, 1000 rupay?", roman.to_roman("ہاں، ۱۰۰۰ روپے؟"))
 
 # ---- with the AI: its Hinglish is used, a translation is not, Urdu and other languages are handled
 answers = {}
@@ -53,6 +56,34 @@ check("an answer of the wrong length keeps the words, in Roman letters", text(br
 # ---- what the AI writes for the screen
 c = brain._tidy({"hook": "चूना लगा", "title": "उसको चूना", "highlight_words": ["चूना", "boss"], "score": 90}, 1, 20)
 check("hook, title and highlighted words are in Roman letters", (c["hook"], c["title"], c["highlight_words"]) == ("CHUNA LAGA", "usko chuna", ["chuna", "boss"]), str(c))
+
+# ---- the language rule: English stays, Hindi/Urdu in Roman letters, everything else translated into English
+check("which languages are translated", [brain.needs_translation(x) for x in ("en", "en-US", "hi", "ur", "es", "ar", "")]
+      == [False, False, False, False, True, True, False])
+def by_purpose(prompt, schema=None, purpose=""):
+    if purpose == "Caption translation":
+        n = int(prompt.split("Lines (")[1].split(")")[0])
+        return [f"English line {i + 1}" for i in range(n)], "m", 10
+    return answers["now"], "m", 10
+brain.ask_ai = by_purpose
+es = [{"w": w, "s": s, "e": s + 0.4} for w, s in (("hola", 0.0), ("amigo", 0.5), ("que", 1.0), ("pasa", 1.5), ("hoy.", 2.0),
+                                                     ("vamos", 5.0), ("a", 5.5), ("ganar", 6.0), ("esto", 6.5))]
+yt_en = [{"w": w, "s": i * 0.5, "e": i * 0.5 + 0.4} for i, w in enumerate("hi friend what is up today".split())]
+answers["now"] = ["Hi", "friend,", "what", "is", "up", "today?"]
+out = brain.english_captions(es, "es", "", youtube_english=lambda: yt_en)
+check("Spanish with YouTube's English captions: those are used, tidied by the AI", text(out) == "Hi friend, what is up today?", text(out))
+out = brain.english_captions(es, "es", "", youtube_english=lambda: None)
+check("Spanish with no English from YouTube: the AI translates it", text(out) == "English line 1 English line 2", text(out))
+check("...each English line on the moment its line was said", out[0]["s"] == 0.0 and out[-1]["s"] >= 5.0 and out[-1]["e"] <= 6.95, str(out))
+brain.ask_ai = no_ai
+ar = ws("مرحبا يا صديقي كيف حالك")
+out = brain.english_captions(ar, "ar", "", youtube_english=lambda: None)
+check("Arabic with neither: still in English letters", not any(roman.needs_roman(w["w"]) for w in out) and len(out) == 5, text(out))
+out = brain.english_captions(ws("जो उसको"), "hi", "")
+check("Hindi is never translated, only spelled in Roman letters", text(out) == "jo usko", text(out))
+brain.ask_ai = by_purpose
+answers["now"] = ["Hello", "there", "friend."]
+check("English stays English", text(brain.english_captions(ws("hello there friend"), "en", "")) == "Hello there friend.")
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)

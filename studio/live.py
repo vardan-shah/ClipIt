@@ -648,7 +648,7 @@ def start_session(creator: dict, url=None) -> dict:
                          .replace("Upload the video file instead, or use a Twitch or Kick link. YouTube links",
                                   "Twitch and Kick streams still work. YouTube"))
     if len(active_mine()) >= config.MAX_LIVE_PER_USER:
-        raise ValueError("You're already recording a stream. Stop it before starting another.")
+        raise ValueError(f"You're already recording {len(active_mine())} streams, the most this server allows at once. Stop one first.")
     if len(active()) >= config.MAX_LIVE_TOTAL or (active() and load.busy()):
         raise ValueError("PeakCut is recording as many streams as it can right now. Try again in a little while.")
     job = jobs.create({"type": "live", "url": url, "name": f"{creator['name']} live"}, {}, enqueue=False,

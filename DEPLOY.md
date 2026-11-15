@@ -24,6 +24,24 @@ PeakCut runs as three containers on one Linux server: the app, PostgreSQL, and C
    admin, and no page or web request can make someone an admin: only that command can.
 6. Sign in as that admin, open **Settings, AI**, and add your AI key there (or put it in `.env`).
 
+## Connecting YouTube, Instagram and TikTok
+
+People connect their accounts with one click in **Settings, Connected apps**: they press Connect, sign in on the
+platform's own page, and come back. For that, the server needs one app registered with each platform. An admin can
+do it right there: press **Set up** on a platform, follow the steps shown, and paste the app's id and secret (or put
+them in `.env`, see `.env.example`). The redirect address to register is shown in the panel, with a Copy button.
+
+- **YouTube** (Google Cloud): an OAuth client of type Web application, with YouTube Data API v3 turned on. Until
+  Google verifies the app, people see a warning screen and uploads stay private.
+- **Instagram** (Meta for Developers): a Business app with Instagram (API setup with Instagram login). Works with
+  Creator and Business accounts. Until Meta reviews the app, only accounts added as testers can connect. Instagram
+  fetches each clip from a one-hour signed link on your site, so the site needs a public https address.
+- **TikTok** (TikTok for Developers): an app with Login Kit and the Content Posting API (Direct Post), scopes
+  `user.info.basic` and `video.publish`. Until TikTok audits the app, clips are posted as private (PeakCut does
+  this by itself and says so on the account).
+
+Instagram and TikTok only accept https redirect addresses.
+
 ## Google setup (sign-in and YouTube)
 
 In Google Cloud, create an OAuth client of type **Web application** with these redirect URIs:

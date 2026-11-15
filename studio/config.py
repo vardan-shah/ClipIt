@@ -91,18 +91,29 @@ REPO_URL = env("PEAKCUT_REPO_URL", "https://github.com/haziqahmedqasmi/peakcut")
 FOLLOW_URL = env("PEAKCUT_FOLLOW_URL", "https://www.instagram.com/haziq.builds/").strip()
 
 # ---------------------------------------------------------------- limits (per user, and for the whole server)
-MAX_UPLOAD_MB = int(env("PEAKCUT_MAX_UPLOAD_MB", "2048"))        # the largest video file someone may upload
+# Your own PeakCut has no limits unless you set them: 0 (the default) means "none" for every limit below. The
+# machine still protects itself: new work waits while the processor, memory or disk are nearly full (load.py).
+_NONE = 10 ** 7                      # what "no limit" becomes: far beyond anything real, and still a plain number
+
+
+def _limit(name: str, default: str = "0"):
+    v = float(env(name) or default)
+    return _NONE if v <= 0 else v
+
+
+MAX_UPLOAD_MB = int(_limit("PEAKCUT_MAX_UPLOAD_MB"))              # the largest video file someone may upload
 # A big file is sent in pieces of this size and joined here, because web servers and CDNs in front of the app
 # refuse very large single requests (Cloudflare stops at 100 MB).
 UPLOAD_PART_MB = max(5, int(env("PEAKCUT_UPLOAD_PART_MB", "40")))
 # The most videos that may ever run at once. How many actually run is decided by how busy the machine is (load.py).
 JOB_WORKERS = int(env("PEAKCUT_JOB_WORKERS") or max(2, os.cpu_count() or 4))
-MAX_ACTIVE_JOBS_PER_USER = int(env("PEAKCUT_MAX_JOBS_PER_USER", "3"))
+MAX_ACTIVE_JOBS_PER_USER = int(_limit("PEAKCUT_MAX_JOBS_PER_USER", "5"))    # videos sent and worked on at once
 MAX_LIVE_TOTAL = int(env("PEAKCUT_MAX_LIVE") or max(4, 2 * (os.cpu_count() or 4)))   # ceiling; real load decides below it
-MAX_LIVE_PER_USER = int(env("PEAKCUT_MAX_LIVE_PER_USER", "1"))
-MAX_VIDEO_HOURS = float(env("PEAKCUT_MAX_VIDEO_HOURS", "6"))    # longest video (or chosen part of one) that is processed
-MAX_LIVE_HOURS = float(env("PEAKCUT_MAX_LIVE_HOURS", "12"))     # a recording stops by itself after this long
-MAX_USER_GB = float(env("PEAKCUT_MAX_USER_GB", "50"))           # disk space one account may fill
+MAX_LIVE_PER_USER = int(_limit("PEAKCUT_MAX_LIVE_PER_USER"))     # streams one person records at once
+MAX_VIDEO_HOURS = _limit("PEAKCUT_MAX_VIDEO_HOURS")              # longest video (or chosen part of one) that is processed
+MAX_LIVE_HOURS = _limit("PEAKCUT_MAX_LIVE_HOURS")                # a recording stops by itself after this long
+MAX_USER_GB = _limit("PEAKCUT_MAX_USER_GB")                      # disk space one account may fill
+MAX_CREATORS = int(_limit("PEAKCUT_MAX_CREATORS"))               # creators one account may add
 ALLOWED_SITES = tuple(s.strip().lower() for s in env(
     "PEAKCUT_ALLOWED_SITES", "youtube.com,youtu.be,twitch.tv,kick.com").split(",") if s.strip())
 

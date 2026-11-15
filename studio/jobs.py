@@ -370,8 +370,8 @@ def render_one(job, clip, words):
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off)
-        span = [round(clip["start"], 2), round(clip["end"], 2)]
+        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
+        span = [round(clip["start"], 2), round(clip["end"], 2), "en2"]      # "en2": captions made always-English
         if clip.get("fixed_for") == span and clip.get("fixed_words") and not any(
                 roman.needs_roman(w.get("w", "")) for w in clip["fixed_words"]):
             raw = clip["fixed_words"]          # already tidied for this exact span: no second AI call
@@ -379,11 +379,13 @@ def render_one(job, clip, words):
             raw = [w for w in words if clip["start"] - 1 <= w["s"] <= clip["end"] + 1]
             try:
                 usage.set_context(job.get("creator"), job.get("title") or "")
-                raw = brain.fix_caption_words(raw, job.get("title") or "")
+                raw = brain.english_captions(raw, job.get("lang") or "", job.get("title") or "",
+                                             youtube_english=lambda: _english_part(job, clip))
                 clip.update(fixed_words=raw, fixed_for=span)
             except Exception:  # noqa: BLE001 - captions still render with the words as heard
                 pass
-        near = [dict(w, s=w["s"] - off, e=w["e"] - off) for w in raw]
+        # the last word on it: whatever was said, nothing is drawn in Hindi or Urdu script
+        near = [dict(w, s=w["s"] - off, e=w["e"] - off) for w in roman.words(raw)]
         out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
@@ -401,6 +403,22 @@ def render_one(job, clip, words):
         clip.update(status="error", error=safe.friendly(e, 400))
         creators.log(job["creator"], f"Clip failed: {safe.friendly(e, 200)}")
     save(job)
+
+
+def _english_part(job, clip):
+    """YouTube's English captions for just this clip, for a video in another language. Fetched once per video."""
+    if (job.get("source") or {}).get("type") != "url":
+        return None
+    f = Path(job["dir"]) / "words_en.json"
+    if f.is_file():
+        en = json.loads(f.read_text(encoding="utf-8"))
+    else:
+        try:
+            en = media.youtube_english_words(job["source"]["url"]) or []
+        except Exception:  # noqa: BLE001 - YouTube often refuses its translations: the AI translates instead
+            en = []
+        f.write_text(json.dumps(en), encoding="utf-8")       # asked once per video, refused or not
+    return [w for w in en if clip["start"] - 0.5 <= w["s"] <= clip["end"] + 0.5]
 
 
 LONG_VIDEO = 40 * 60   # above this, fetch only the pieces that become clips
@@ -552,6 +570,7 @@ def _run_job(job):
         if yt and not _covers(yt[0], lo / 16000, hi / 16000):
             yt = None
         job["transcript_from"] = "youtube" if yt else "own"
+        job["lang"] = yt[1] if yt else ""          # the language spoken, when YouTube says (decides the captions)
     if resuming:
         try:
             words = json.loads((d / "words.json").read_text(encoding="utf-8"))

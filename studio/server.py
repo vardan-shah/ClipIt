@@ -26,7 +26,7 @@ from . import (accounts, ai, alerts, auth, config, creators, ctx, db, jobs, live
 
 app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None)
 WEB = config.ROOT / "web"
-OPEN = ("/api/auth/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
+OPEN = ("/api/auth/", "/pub/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
 PAGES = {"/": "landing.html", "/login": "auth.html", "/signup": "auth.html", "/reset": "reset.html",
          "/privacy": "legal.html", "/terms": "legal.html", "/acceptable-use": "legal.html"}
 VIDEO_TYPES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts", ".flv"}
@@ -539,9 +539,11 @@ def google_callback(request: Request, code: str = "", state: str = "", error: st
 @app.get("/api/status")
 def status(request: Request):
     from . import notices
-    return {"user": auth.public(_me(request)), "accounts": config.ACCOUNTS, "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
+    from . import updates
+    me_ = _me(request)
+    return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
-            "youtube": accounts.youtube_ready(), "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
+            "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
             "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS}
 
 
@@ -808,8 +810,8 @@ def upload_start(body: dict = Body(...)):
             mine += json.loads((d / "meta.json").read_text(encoding="utf-8")).get("user") == ctx.uid()
         except (OSError, ValueError):
             pass
-    if mine >= 4:
-        raise HTTPException(429, "You already have several uploads in progress. Let one finish first.")
+    if mine >= config.MAX_ACTIVE_JOBS_PER_USER:
+        raise HTTPException(429, f"You already have {mine} uploads in progress. Let one finish first.")
     part = config.UPLOAD_PART_MB * 1024 * 1024
     upid = os.urandom(12).hex()
     d = _up_root() / f"up-{upid}"
@@ -1130,8 +1132,8 @@ def list_creators():
 @app.post("/api/creators")
 def new_creator(body: dict = Body(...)):
     _channel_ok(body)
-    if len(creators.all_creators()) >= 50:
-        raise HTTPException(400, "You've reached the limit of 50 creators.")
+    if len(creators.all_creators()) >= config.MAX_CREATORS:
+        raise HTTPException(400, f"This server allows {config.MAX_CREATORS} creators per account.")
     try:
         c = creators.create(body)
     except ValueError as e:
@@ -1291,43 +1293,71 @@ def remove_account(aid: str):
     return {"ok": True}
 
 
-YT_REDIRECT = config.PUBLIC_URL + "/oauth/youtube/callback"
-_NOTE = ("<!doctype html><meta charset='utf-8'><title>PeakCut</title><link rel='icon' href='/brand/favicon.svg'>"
-         "<body style='font:16px system-ui,sans-serif;padding:48px;color:#211813'><img src='/brand/logo.svg' alt='PeakCut' style='height:34px'>"
-         "<h2 style='margin-top:28px'>{}</h2><p style='color:#6D6159'>{}</p><p><a href='/app' style='color:#A9480A'>Back to PeakCut</a></p></body>")
+# ---------------------------------------------------------------- connecting YouTube, Instagram and TikTok
+# Connect sends the browser to the platform's own sign-in page; the platform sends it back here, and the person lands
+# on Settings, Connected apps, with the account added (or a message saying what went wrong).
+def _back(**q):
+    from urllib.parse import urlencode as _ue
+    return RedirectResponse("/app/settings/apps?" + _ue(q), 303)
 
 
-def _esc(s) -> str:
-    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-@app.get("/oauth/youtube/start")
-def youtube_start():
+@app.get("/oauth/{platform}/start")
+def connect_start(platform: str):
+    if platform not in accounts.PLATFORM_NAMES:
+        raise HTTPException(404)
     try:
-        return RedirectResponse(accounts.youtube_auth_url(YT_REDIRECT))
+        return RedirectResponse(accounts.connect_url(platform), 303)
     except ValueError as e:
-        return HTMLResponse(_NOTE.format("YouTube isn't available yet", _esc(e)), status_code=400)
+        return _back(connect_error=str(e))
 
 
-@app.get("/oauth/youtube/callback")
-def youtube_callback(code: str = "", state: str = "", error: str = ""):
+@app.get("/oauth/{platform}/callback")
+def connect_callback(platform: str, code: str = "", state: str = "", error: str = "", error_description: str = "",
+                     error_reason: str = ""):
+    if platform not in accounts.PLATFORM_NAMES:
+        raise HTTPException(404)
+    name = accounts.PLATFORM_NAMES[platform]
     if error or not code:
-        return HTMLResponse(_NOTE.format("YouTube was not connected", "Google reported: " + _esc(error or "no code returned")), status_code=400)
+        why = "you cancelled" if error in ("access_denied",) or error_reason == "user_denied" else (error_description or error or "no sign-in code came back")
+        return _back(connect_error=f"{name} was not connected: {why[:160]}.")
     try:
-        acc = accounts.youtube_finish(code, state, YT_REDIRECT)
+        _throttle("connect:" + ctx.uid(), 30, 600)
+        acc = accounts.connect_finish(platform, code, state)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
-        return HTMLResponse(_NOTE.format("YouTube was not connected", _esc(safe.friendly(e, 300))), status_code=400)
-    return HTMLResponse(_NOTE.format("YouTube channel connected", _esc(acc["name"]) + " is now in your accounts."))
+        return _back(connect_error=f"{name} was not connected: {safe.friendly(e, 240)}")
+    return _back(connected=platform, name=acc["name"])
 
 
-@app.post("/api/accounts/instagram")
-def add_instagram(body: dict = Body(...)):
+@app.get("/pub/{token}.mp4")
+def public_clip(token: str):
+    """A clip for a platform to fetch while posting it: one clip, one hour, signed (see accounts.clip_link)."""
+    got = accounts.read_clip_link(token)
+    if not got:
+        raise HTTPException(404)
+    uid, job_id, name = got
+    with ctx.as_user(uid):
+        job = jobs.get(job_id) if re.fullmatch(r"[\w\-]{8,60}", job_id) else None
+        f = Path(job["dir"]) / "clips" / name if job else None
+    if not f or not f.is_file():
+        raise HTTPException(404)
+    return FileResponse(f, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})
+
+
+@app.get("/api/apps")
+def apps_get(request: Request):
+    _admin(request)
+    return accounts.apps_public()
+
+
+@app.put("/api/apps")
+def apps_put(request: Request, body: dict = Body(...)):
+    _admin(request)
     try:
-        auth.throttle("ig:" + ctx.uid(), 10, 600)
-        acc = accounts.instagram_add(str(body.get("token", ""))[:600])
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, safe.friendly(e, 300))
-    return {"id": acc["id"], "name": acc["name"]}
+        return accounts.save_app(str(body.get("platform", "")), body.get("client_id"), body.get("client_secret"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/posts")

@@ -74,6 +74,12 @@ main{background:var(--bg);margin:8px 8px 8px 0;border-radius:var(--r-lg);height:
 .topbar{position:sticky;top:0;z-index:5;background:var(--bg);display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 28px;min-height:54px;border-bottom:1px solid transparent;transition:border-color .2s ease}
 .topbar.stuck{border-color:var(--line)}
 #vbanner:empty{display:none}
+.upd{display:grid;gap:14px}
+.upd ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px;color:var(--text);max-height:180px;overflow:auto}
+.upd ul small{color:var(--dim)}
+.upd .cmd{display:flex;gap:8px;align-items:center}
+.upd .cmd code{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12px;background:var(--muted);border-radius:8px;padding:9px 11px}
+.upd h3{font-size:13px;font-weight:600;color:var(--brand-ink);margin:0}
 .vb{display:flex;align-items:center;gap:12px;margin:12px 28px 0;padding:12px 12px 12px 16px;border-radius:12px;background:#FFF4E6;color:#7A3E0C;font-size:14px;animation:rise .3s ease both}
 .vb svg{width:18px;height:18px;flex:none;color:var(--brand-deep)}
 .vb span{flex:1;min-width:0}
@@ -456,6 +462,15 @@ img.av{object-fit:cover}
 .applogo svg{width:22px;height:22px}
 .apptx{flex:1;min-width:0}.apptx>b{display:block;font-size:15px;color:var(--brand-ink)}.apptx>span{font-size:13px;color:var(--dim)}
 .appact{flex:none}
+.appcard{flex-wrap:wrap}
+.appsetup{flex-basis:100%;margin-top:4px;padding:14px 16px;border-radius:10px;background:var(--muted);display:grid;gap:12px}
+.appsetup ol{margin:0;padding-left:18px;font-size:13px;color:var(--text);display:grid;gap:4px}
+.appsetup a{color:var(--brand-deep);font-weight:600}
+.appsetup a:hover{color:var(--brand-ink)}
+.appsetup .copyrow{display:flex;gap:8px;align-items:center}
+.appsetup .copyrow code{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12px;background:#fff;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px}
+.appsetup .warnline{font-size:12px;color:var(--brand-deep)}
+.appact{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .applist{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .applist div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .applist .btn{margin-left:auto}
@@ -1192,6 +1207,20 @@ async function openFeedback(kind = "bug", context = "") {
   if (context) { try { await navigator.clipboard.writeText(context); toast("The problem is copied. Paste it in your message.", "ok"); } catch {} }
   window.open(url, "_blank", "noopener");
 }
+function updateHow() {
+  const up = S.status?.update, d = $("#formdlg"); if (!up || d.open) return;
+  const ai = "Update this PeakCut folder to the latest version from GitHub (git pull), keep my .env and data folder as they are, install any new requirements, and restart PeakCut.";
+  const cmd = (label, text) => `<h3>${label}</h3><div class="cmd"><code>${esc(text)}</code><button class="btn sm" type="button" data-act="copytext" data-t="${esc(text)}">${ic("copy")}Copy</button></div>`;
+  d.innerHTML = `<form method="dialog" class="dlg upd"><h2>A new version of PeakCut is out</h2>
+    <p class="help">You're on <b>${esc(up.current)}</b>. ${up.behind} update${up.behind === 1 ? " has" : "s have"} been added since. Your settings, keys and clips stay as they are.</p>
+    ${up.notes.length ? `<ul>${up.notes.map(n => `<li>${esc(n.title)} <small>${esc(n.date)}</small></li>`).join("")}</ul>` : ""}
+    ${cmd("Ask your AI coding assistant (Claude, Cursor, Copilot...)", ai)}
+    ${cmd("Or run it yourself, in the PeakCut folder", "git pull && pip install -r requirements.txt")}
+    <p class="sub">Then stop PeakCut and start it again. With Docker, run <code>git pull && docker compose up -d --build</code> instead. <a class="lnk" href="${esc(up.url)}" target="_blank" rel="noopener">See every change on GitHub</a></p>
+    <div class="dlg-foot"><button class="btn" value="later">Remind me next version</button><button class="btn primary" value="ok" autofocus>Got it</button></div></form>`;
+  d.onclose = () => { if (d.returnValue === "later") { try { localStorage.setItem("peakcut_update_seen", up.latest); } catch {} drawShell(); } };
+  d.returnValue = "ok"; d.showModal();
+}
 function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
 let lastInd = null;
 addEventListener("resize", () => { lastInd = null; const i = $("#utabs .ind"); if (i) i.remove(); moveInd(); });   // where the orange pill was, so it can slide from there to the new tab
@@ -1249,7 +1278,12 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
   }
   const me = S.status.user;
   const kk = S.status.ai;
-  put($("#vbanner"), me && me.verified === false ? `<div class="vb" role="status">${ic("warn")}<span>Confirm your email to start clipping. We sent a link to <b>${esc(me.email)}</b>.</span><button class="btn sm" data-act="resendverify">Send a new link</button></div>`
+  const up = S.status.update;
+  let upSeen = "";
+  try { upSeen = localStorage.getItem("peakcut_update_seen") || ""; } catch {}
+  const upBar = up && up.latest !== upSeen ? `<div class="vb" role="status">${ic("up")}<span>A new version of PeakCut is out: <b>${up.behind} update${up.behind === 1 ? "" : "s"}</b> since yours.</span>
+    <button class="btn sm primary" data-act="updhow">How to update</button><button class="btn sm ghost" data-act="updlater" aria-label="Hide until the next version">Later</button></div>` : "";
+  put($("#vbanner"), upBar ? upBar : me && me.verified === false ? `<div class="vb" role="status">${ic("warn")}<span>Confirm your email to start clipping. We sent a link to <b>${esc(me.email)}</b>.</span><button class="btn sm" data-act="resendverify">Send a new link</button></div>`
     : kk && kk.ready === false && S.view !== "usage" ? `<div class="vb" role="status">${ic("bolt")}<span>${me?.is_admin ? "Add your AI key to let the AI pick clips and write titles. Until then, clips are picked by loudness." : "The AI isn't set up on this server yet, so clips are picked by loudness."}</span>${me?.is_admin && S.view !== "settings" ? `<button class="btn sm primary" data-act="go" data-v="settings" data-tab="ai">${ic("plus")}Add AI key</button>` : ""}</div>` : "");
   put($("#tpic"), pic); $("#tpic").classList.toggle("live", !!(c && (c.live_job || liveOn(c).length)));
   put($("#utabs"), tabs); moveInd(); $(".topbar").classList.toggle("tabbed", !!tabs);
@@ -1411,7 +1445,7 @@ const fmtSize = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.
 const isChannel = u => /^(https?:\/\/)?(www\.)?(twitch\.tv|kick\.com)\/[A-Za-z0-9_]+\/?$/.test(u) || /youtube\.com\/(@[^/]+|channel\/[^/]+)\/?(live|videos|streams)?\/?$/.test(u);
 const looksLink = u => /^https?:\/\/([\w-]+\.)*(youtube\.com|youtu\.be|twitch\.tv|kick\.com)\//i.test(u);
 const fullLink = u => /[?&]v=[\w-]{11}\b|youtu\.be\/[\w-]{11}\b|\/(shorts|live|embed)\/[\w-]{11}\b|twitch\.tv\/videos\/\d{6,}|clips\.twitch\.tv\/\w|twitch\.tv\/\w+\/clip\/\w|kick\.com\/[\w-]+\/(videos?|clips?)\/[\w-]{6,}/i.test(u);
-const batchMax = () => S.status.max_batch || 3;
+const batchMax = () => S.status.max_batch || 5;
 const batchUsed = A => A.files.length + A.links.filter(l => l.state !== "bad").length;
 const newId = () => Math.random().toString(36).slice(2);
 
@@ -1818,7 +1852,7 @@ function drawCreatorForm() {
         <label class="f">Only auto-post clips scoring at least<input data-k="post_min_score" type="number" min="0" max="100" value="${c.post_min_score}"></label>
         <label class="f">Minutes between posts on one account<input data-k="post_gap_min" type="number" value="${c.post_gap_min}"></label>
         <label class="f">Most posts per account per day<input data-k="daily_cap" type="number" value="${c.daily_cap}"></label>
-        <label class="f">YouTube visibility<select data-k="privacy">${opts({public:"Public", unlisted:"Unlisted", private:"Private"}, c.privacy)}</select></label>
+        <label class="f">Who can see posts (YouTube, TikTok)<select data-k="privacy">${opts({public:"Public", unlisted:"Unlisted", private:"Private"}, c.privacy)}</select></label>
         <label class="f">Campaign pay per 1,000 views ($)<input data-k="rate_per_1k" type="number" step="0.1" min="0" value="${c.rate_per_1k}"></label>
         <label class="f span">Line added to every post (credit, campaign tag)<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label></div></div>
     <div class="card danger-card"><h2>Delete this creator</h2><p class="help">Removes ${esc(c.name)}, their settings and every video and clip filed under them. This cannot be undone.</p>
@@ -1861,7 +1895,7 @@ function nextSteps(o) {
   const st = [];
   if (!S.creators.length) st.push(["Add your first creator", "Give each streamer their own workspace, settings and folder.", "newcreator"]);
   if (!S.jobs.length) st.push(["Make your first clips", "Paste a video link in the box above.", "focusurl"]);
-  if (!S.accounts.length) st.push(["Connect a posting account", "YouTube, Instagram, or an outbox folder for TikTok.", "go:settings"]);
+  if (!S.accounts.length) st.push(["Connect a posting account", "YouTube, Instagram or TikTok, in one click.", "go:settings"]);
   if (S.creators.length && !S.creators.some(c => c.auto_watch)) st.push(["Turn on auto-record", "Record by itself whenever a creator goes live.", "go:c:" + S.creators[0].id + ":setup"]);
   return st;
 }
@@ -2013,16 +2047,44 @@ async function drawSettings() {
       const yt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.5A3.02 3.02 0 0 0 .5 6.19C0 8.07 0 12 0 12s0 3.93.5 5.81a3.02 3.02 0 0 0 2.12 2.14c1.88.5 9.38.5 9.38.5s7.5 0 9.38-.5a3.02 3.02 0 0 0 2.12-2.14C24 15.93 24 12 24 12s0-3.93-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></svg>';
       const ig = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23a3.7 3.7 0 0 1-.9 1.38c-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16zM12 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.4-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>';
       const tt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.04.86.13v-3.5a6.37 6.37 0 0 0-.86-.05A6.34 6.34 0 0 0 3.15 15.7a6.34 6.34 0 0 0 10.86 4.43 6.3 6.3 0 0 0 1.81-4.43V8.73a8.2 8.2 0 0 0 4.77 1.52V6.8a4.85 4.85 0 0 1-1-.11z"/></svg>';
-      body.innerHTML = `<section class="set-sec"><h2>Connected apps</h2><p class="help">Connect the accounts PeakCut can post clips to. Each one can then be switched on per creator, in that creator's Setup. You always sign in on the platform's own page; PeakCut never sees your passwords.</p>
+      const ok = S.status.connect || {}, admin = me.is_admin;
+      const setup = admin ? await api("/api/apps").catch(() => null) : null;
+      const GUIDE = {
+        youtube: ["https://console.cloud.google.com/apis/credentials", "Google Cloud",
+          ["Create a project and turn on <b>YouTube Data API v3</b>.", "Create an <b>OAuth client ID</b> of type <b>Web application</b>.",
+           "Add the address below under <b>Authorised redirect URIs</b>.", "Paste its Client ID and Client secret here."],
+          "Until Google verifies your app, people see a warning when they connect, and uploads stay private."],
+        instagram: ["https://developers.facebook.com/apps", "Meta for Developers",
+          ["Create a <b>Business</b> app and add <b>Instagram</b> (API setup with Instagram login).",
+           "Under <b>Business login settings</b>, add the address below as a redirect URL.", "Paste the <b>Instagram app ID</b> and <b>Instagram app secret</b> here."],
+          "Works with Creator and Business Instagram accounts. Until Meta reviews your app, only accounts you add as testers can connect."],
+        tiktok: ["https://developers.tiktok.com/apps", "TikTok for Developers",
+          ["Create an app and add <b>Login Kit</b> and <b>Content Posting API</b> with Direct Post turned on.",
+           "Add the address below as a redirect URI, with the scopes <b>user.info.basic</b> and <b>video.publish</b>.", "Paste the Client key and Client secret here."],
+          "Until TikTok reviews your app, clips are posted as private: only the account owner sees them."]};
+      const card = (pf, name, logo, bg, desc) => {
+        const accs = mine(pf), st = setup?.[pf], open = S.setupOpen === pf, g = GUIDE[pf];
+        const act = (ok[pf] ? `<a class="btn sm primary" href="/oauth/${pf}/start">${ic("plus")}${accs.length ? "Add another" : "Connect"}</a>`
+            : admin ? `<button class="btn sm primary" data-act="appsetup" data-p="${pf}">${ic("cog")}Set up</button>` : `<span class="pill">Not set up on this server</span>`)
+          + (ok[pf] && admin ? `<button class="btn sm ghost" data-act="appsetup" data-p="${pf}" title="Change this server's ${name} app">${ic("cog")}</button>` : "");
+        const panel = open && st ? `<div class="appsetup">
+            <p class="sub">To let people connect ${name}, register this server once with <a href="${g[0]}" target="_blank" rel="noopener">${g[1]}</a>. It takes about five minutes.</p>
+            <ol>${g[2].map(x => `<li>${x}</li>`).join("")}</ol>
+            <div class="copyrow"><code>${esc(st.redirect)}</code><button class="btn sm" data-act="copytext" data-t="${esc(st.redirect)}">${ic("copy")}Copy</button></div>
+            ${!st.https && pf !== "youtube" ? `<p class="warnline">${name} only accepts https addresses. Put PeakCut on a domain with https (or a tunnel) and set PEAKCUT_PUBLIC_URL to it first.</p>` : ""}
+            <div class="fields"><label class="f">${esc(st.id_label)}<input id="app_id" placeholder="${st.ready ? "Saved: " + esc(st.id_hint) + ". Paste a new one to replace it" : ""}" autocomplete="off" spellcheck="false"></label>
+              <label class="f">${esc(st.secret_label)}<input id="app_secret" type="password" placeholder="${st.ready ? "Saved. Paste a new one to replace it" : ""}" autocomplete="off"></label></div>
+            <p class="sub">${g[3]}</p>
+            <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">Save</button><button class="btn ghost" data-act="appsetup" data-p="">Close</button></div></div>` : "";
+        return `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
+          <div class="apptx"><b>${name}</b><span>${desc}</span>${listOf(accs)}</div><div class="appact">${act}</div>${panel}</div>`;
+      };
+      body.innerHTML = `<section class="set-sec"><h2>Connected apps</h2><p class="help">Connect the accounts PeakCut posts clips to: press Connect, sign in on the platform's own page, and you're back here. PeakCut never sees your passwords. Then pick which accounts each creator posts to, in that creator's Setup.</p>
         <div class="apps">
-          ${app("yt", "YouTube", yt, "#FF0000", "Post clips to your channel as Shorts.",
-              S.status.youtube ? `<a class="btn sm primary" href="/oauth/youtube/start" target="_blank" rel="noopener">${ic("plus")}Connect</a>` : `<span class="pill">Not available yet</span>`, listOf(mine("youtube")))}
-          ${app("ig", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "Post clips as Reels to a Creator or Business account.",
-              me.is_admin ? `<button class="btn sm" data-act="igform">${ic("plus")}Connect</button>` : `<span class="pill">Coming soon</span>`, listOf(mine("instagram")))}
-          ${app("tt", "TikTok", tt, "#000", "Post clips straight to TikTok.", `<span class="pill">Coming soon</span>`, "")}
-        </div>
-        <div id="igbox" hidden><div class="row" style="margin-top:12px"><input id="igtoken" type="password" placeholder="Instagram access token from your Meta developer app" autocomplete="off" style="flex:1 1 280px"><button class="btn primary" data-act="igadd">Connect Instagram</button></div>
-          <p class="sub" style="margin-top:6px">Admin only while the Meta app is in review.</p></div></section>`;
+          ${card("youtube", "YouTube", yt, "#FF0000", "Post clips to your channel as Shorts.")}
+          ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "Post clips as Reels. Needs a Creator or Business account.")}
+          ${card("tiktok", "TikTok", tt, "#000", "Post clips straight to your TikTok.")}
+        </div></section>`;
     }
   } catch (e) { body.innerHTML = `<div class="set-load">${esc(e.message)}</div>`; }
 }
@@ -2278,9 +2340,14 @@ document.addEventListener("click", async e => {
       if (!creator().channel) { setTab("setup"); return toast("Connect one of their channels first, then press Start recording.", "bad"); }
       b.disabled = true; const was = b.innerHTML; b.innerHTML = `<span class="rdot"></span>Starting…`;
       try {
-        const j = await send(`/api/creators/${creatorId()}/live`, d.url ? {channel: d.url} : {});
-        if (j?.id) { const c = creator(); if (c) c.live_job = j.id; if (!jobOf(j.id)) S.jobs.unshift(j); render(); }
-        toast("Recording started. Clips appear below as they're made.", "ok"); setTab("clips");
+        // The creator is fixed before asking: starting can take a few seconds, and the person may open another
+        // creator meanwhile. The recording must stay with the one whose button was pressed.
+        const cid0 = creatorId();
+        const j = await send(`/api/creators/${cid0}/live`, d.url ? {channel: d.url} : {});
+        if (j?.id) { const c = S.creators.find(x => x.id === cid0); if (c) c.live_job = j.id; if (!jobOf(j.id)) S.jobs.unshift(j); render(); }
+        const still = creatorId() === cid0;
+        toast(still ? "Recording started. Clips appear below as they're made." : `Recording started for ${S.creators.find(x => x.id === cid0)?.name || "that creator"}.`, "ok");
+        if (still) setTab("clips");
       } catch (e) { b.disabled = false; b.innerHTML = was; throw e; }
       return tick();
     }
@@ -2301,7 +2368,14 @@ document.addEventListener("click", async e => {
     }
     if (a === "tour") return startTour();
     if (a === "settab") { e.preventDefault(); S.stab = d.k; remember("settings", d.k); return drawSettings(); }
-    if (a === "igform") { const x = $("#igbox"); x.hidden = !x.hidden; if (!x.hidden) $("#igtoken").focus(); return; }
+    if (a === "updhow") return updateHow();
+    if (a === "updlater") { try { localStorage.setItem("peakcut_update_seen", S.status.update?.latest || ""); } catch {} return drawShell(); }
+    if (a === "appsetup") { S.setupOpen = d.p && S.setupOpen !== d.p ? d.p : ""; return drawSettings(); }
+    if (a === "copytext") { await navigator.clipboard.writeText(d.t); return toast("Copied", "ok"); }
+    if (a === "appsave") {
+      await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
+      S.setupOpen = ""; S.status = await api("/api/status"); toast("Saved. People can connect now.", "ok"); return drawSettings();
+    }
     if (a === "bell") return openBell();
     if (a === "feedback") return openFeedback("bug");
     if (a === "report") return openFeedback("bug", d.ctx);
@@ -2318,7 +2392,6 @@ document.addEventListener("click", async e => {
       await send("/api/settings", {plans:p}, "PUT"); S.status = await api("/api/status"); toast("Plans saved", "ok"); return drawSettings();
     }
     if (a === "testalert") { await saveSettings(); await api("/api/alerts/test", {method:"POST"}); return toast("Test message sent. Check your phone.", "ok"); }
-    if (a === "igadd") { await send("/api/accounts/instagram", {token:$("#igtoken").value}); toast("Instagram connected", "ok"); await tick(); return drawSettings(); }
     if (a === "accremove") {
       if (!await ask("Disconnect this account?", "Posts still waiting for it will fail.", "Disconnect", true)) return;
       await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSettings();
@@ -2343,6 +2416,11 @@ $("#main").addEventListener("scroll", () => $(".topbar").classList.toggle("stuck
 (async () => {
   try { S.status = await api("/api/status"); } catch {}
   const q = new URLSearchParams(location.search);
+  if (q.get("connected") || q.get("connect_error")) {
+    const ok = q.get("connected"), err = q.get("connect_error"), nm = q.get("name");
+    history.replaceState(null, "", location.pathname);
+    setTimeout(() => ok ? toast(`${nm || ok} is connected. Pick it in a creator's Setup to post there.`, "ok") : toast(err, "bad"), 300);
+  }
   if (q.get("verified")) { history.replaceState(null, "", location.pathname); setTimeout(() => toast("Email confirmed. You're ready to clip.", "ok"), 300); }
   if (q.get("verify_error")) { history.replaceState(null, "", location.pathname); setTimeout(() => toast(q.get("verify_error"), "bad"), 300); }
   if (location.pathname.startsWith("/app/")) { const [v, tab] = fromPath(location.pathname); S.view = v; S.ctab = tab; }  // the address decides, before anything loads

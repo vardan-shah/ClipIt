@@ -14,7 +14,8 @@ creator's live stream and clip the highlights while the stream is still running.
 - **Live clipping.** Records a stream into a rolling buffer and clips as it happens, using loudness, chat activity
   and the transcript.
 - **Workspaces per creator.** Channels, clip settings, posting rules and an activity log for each creator you clip.
-- **Posting.** Queue or auto-post finished clips to YouTube Shorts and Instagram Reels, with spacing and daily caps.
+- **Posting.** Connect YouTube, Instagram and TikTok in one click, then queue or auto-post finished clips, with
+  spacing and daily caps (see [DEPLOY.md](DEPLOY.md#connecting-youtube-instagram-and-tiktok) for the one-time setup).
 - **No sign-in on your own computer.** It opens straight into the dashboard. On a shared server, switch accounts on
   (`PEAKCUT_ACCOUNTS=1`) for email or Google sign-in and an admin dashboard.
 - **Your own AI.** Gemini, OpenAI, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
@@ -129,6 +130,14 @@ Data is kept per user: accounts in the database (SQLite on your own computer, Po
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.
 
+## Updating
+
+PeakCut checks GitHub every few hours. When a newer version is out, the dashboard shows a notice with what changed
+and how to update: ask your AI coding assistant to do it (the notice has a sentence to paste), or run
+`git pull && pip install -r requirements.txt` in the PeakCut folder and restart it (with Docker:
+`git pull && docker compose up -d --build`). Your `.env`, keys and clips are not touched. Only the two commit ids
+are sent to GitHub; set `PEAKCUT_UPDATE_CHECK=0` to turn the check off.
+
 ## Deploy
 
 [DEPLOY.md](DEPLOY.md) walks through a single server with Docker: the app, PostgreSQL, and Caddy for HTTPS.
@@ -144,7 +153,8 @@ docker compose up -d --build
 - Each person's videos wait in their own line and the lines take turns, so one person cannot hold everyone up.
 - The server measures its own processor, memory and disk every second. Extra videos and recordings start only
   while there is room, wait briefly when it is nearly full, and continue the moment it frees up.
-- Uploads, video length, storage per account and request sizes all have limits, set in `.env`.
+- There are no limits on upload size, video length, recordings, creators or storage unless you set them in
+  `.env`. Five videos can be sent at once. Request sizes are always capped, so junk can't fill the memory.
 
 ## Tests
 
