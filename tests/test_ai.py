@@ -45,6 +45,9 @@ def fake_post(url, json=None, headers=None, timeout=None, **_k):  # noqa: A002
     if url.endswith("/messages"):
         return Reply(200, {"content": [{"type": "text", "text": "Here you go: " + globals()["json_text"]({"items": [CLIP]})}],
                            "usage": {"input_tokens": 70, "output_tokens": 10}})
+    if url.endswith("/api/chat"):                       # Ollama's own address: it is told the shape and how much to read
+        return Reply(200, {"message": {"role": "assistant", "content": "<think>hmm, which moment?</think>" + globals()["json_text"]({"items": [CLIP]})},
+                           "prompt_eval_count": 60, "eval_count": 15})
     return Reply(404, {})
 
 
@@ -91,8 +94,16 @@ use("ollama")
 os.environ["PEAKCUT_AI_KEY"] = ""
 config._kept.clear()
 check("ollama needs no key", ai.ready() and ai.label().startswith("Ollama"))
-out, _s, _w = ai.call("model-a", "hello", brain.SCHEMA)
-check("ollama: no key header is sent", "Authorization" not in seen[0][2] and out == [CLIP])
+out, sent, wrote = ai.call("model-a", "hello", brain.SCHEMA)
+check("ollama: its own chat address, no key header, answer and tokens read", seen[0][0] == "http://127.0.0.1:11434/api/chat"
+      and "Authorization" not in seen[0][2] and out == [CLIP] and (sent, wrote) == (60, 15), str((seen[0][0], out, sent, wrote)))
+check("ollama: told how much to read, and the shape of the answer", seen[0][1]["options"]["num_ctx"] == 16384
+      and seen[0][1]["stream"] is False and seen[0][1]["format"]["properties"]["items"]["type"] == "array")
+check("ollama: a model's thinking out loud is not mistaken for the answer", out == [CLIP])
+use("ollama", "http://192.168.1.5:11434/v1")           # an older setting with the OpenAI-style address on the end
+ai.call("model-a", "hello", brain.SCHEMA)
+check("ollama: an address ending in /v1 still reaches the chat address", seen[0][0] == "http://192.168.1.5:11434/api/chat", seen[0][0])
+use("ollama")
 use("gemini")
 check("gemini without a key is not ready", not ai.ready())
 os.environ["PEAKCUT_AI_KEY"] = "test-key-123456"

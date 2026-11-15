@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.free.example
 secrets/
 *.pem
 *.key

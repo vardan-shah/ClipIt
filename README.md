@@ -19,6 +19,8 @@ creator's live stream and clip the highlights while the stream is still running.
   (`PEAKCUT_ACCOUNTS=1`) for email or Google sign-in and an admin dashboard.
 - **Your own AI.** Gemini, OpenAI, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
   speaks the OpenAI chat format. No key at all also works: clips are then picked by loudness.
+- **Free to run.** A model on your own computer through Ollama, free cloud plans chained so that one running out of
+  requests hands over to the next, or no AI at all. See [FREE.md](FREE.md).
 
 ## Quick start
 
@@ -76,6 +78,9 @@ PEAKCUT_AI_KEY=your-key-here
 
 - `PEAKCUT_AI_MODELS` is the model id exactly as the service names it. Model names change often, so check the
   service's current list. Several ids separated by commas are tried in order, which gives you a fallback.
+  To fall back to a different service when one runs out of free requests, use `PEAKCUT_AI_FALLBACKS`
+  (see [FREE.md](FREE.md)). `python -m studio.ai_check` asks each service you set up one tiny question and says
+  which work.
 - A fast, inexpensive model is the right choice. A one-hour video is read in about four requests.
 - You pay the AI service directly for what you use. The **AI usage** page in the app shows how many requests and
   tokens each video took.
@@ -89,6 +94,7 @@ Everything is set through environment variables, normally in a `.env` file next 
 | Setting | What it is for |
 |---|---|
 | `PEAKCUT_AI_PROVIDER`, `PEAKCUT_AI_MODELS`, `PEAKCUT_AI_KEY` | The AI that picks clips and writes titles (or set it in the dashboard) |
+| `PEAKCUT_AI_FALLBACKS` | Other services to ask, in order, when the main one is busy or out of free requests ([FREE.md](FREE.md)) |
 | `PEAKCUT_ACCOUNTS` | `1` makes everyone sign in. Use it on any server other people can reach |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: Sign in with Google, and connecting YouTube |
 | `PEAKCUT_SMTP_*`, `PEAKCUT_MAIL_FROM` | Optional: confirmation and password emails |
@@ -146,8 +152,9 @@ docker compose up -d --build
 python tests/run.py
 ```
 
-This starts a copy of the app on a spare port with an empty temporary data folder, runs the permission, abuse and
-queue tests against it, then removes it. It needs no keys and never touches real data.
+This starts a copy of the app on a spare port with an empty temporary data folder, runs the permission, abuse,
+queue and AI tests against it, then removes it. It needs no keys and never touches real data. The AI tests use a
+pretend network, so nothing is sent anywhere.
 
 ## Security
 

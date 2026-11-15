@@ -163,24 +163,48 @@ def loud_zscore(db):
     return (db - np.median(db)) / (db.std() + 1e-6)
 
 
+def _how_it_failed(e) -> str:
+    """'busy': out of free requests or overloaded, so ask someone else now and this one again later.
+    'garbled': it answered, but not in the shape asked: worth one more go.
+    'refused': a wrong key, an unknown model, a service that is off: asking again would change nothing."""
+    msg = str(e)
+    if "HTTP 429" in msg or "HTTP 5" in msg:
+        return "busy"
+    if isinstance(e, (ValueError, KeyError, IndexError, TypeError)) or "did not answer with JSON" in msg:
+        return "garbled"
+    return "refused"
+
+
 def ask_ai(prompt, schema=None, purpose="AI call"):
-    """Try each model in order, with a couple of retries for rate limits and overloads.
+    """Ask the AI. Every model of the main service is tried, then each fallback service (PEAKCUT_AI_FALLBACKS).
+    A busy service is passed over at once for the next one, so one free plan running out does not stop the work;
+    only when every one is busy is there a short wait before going round again.
     Returns (the answer, the model that gave it, tokens used) and notes the tokens in the usage record."""
-    if not config.ai_ready():
+    cands = ai.candidates()
+    if not cands:
         raise RuntimeError("The AI is not set up on this server.")
-    last = None
-    for model in ai.models():
-        for attempt in range(3):
+    last, gone, strikes = None, set(), {}
+    for attempt in range(3):
+        waiting = False
+        for i, (spec, model) in enumerate(cands):
+            if i in gone:
+                continue
             try:
-                out, sent, wrote = ai.call(model, prompt, schema or SCHEMA)
+                out, sent, wrote = ai.call(model, prompt, schema or SCHEMA, spec)
                 usage.record(sent, wrote, purpose)
                 return out, model, sent + wrote
             except Exception as e:  # noqa: BLE001
-                last = e
-                if "HTTP 429" in str(e) or "HTTP 5" in str(e):
-                    time.sleep(4 * (attempt + 1))
-                    continue
-                break
+                last, how = e, _how_it_failed(e)
+                if how == "busy":
+                    waiting = True
+                else:
+                    strikes[i] = strikes.get(i, 0) + (1 if how == "garbled" else 2)
+                    if strikes[i] >= 2:
+                        gone.add(i)
+        if len(gone) == len(cands):
+            break
+        if waiting:
+            time.sleep(4 * (attempt + 1))
     raise RuntimeError(f"The AI did not answer: {last}")
 
 
@@ -200,9 +224,55 @@ def _snap(clip, lines, words, min_len, max_len, duration):
     return round(max(0.0, s - 0.15), 2), round(min(duration, e + 0.35), 2)
 
 
-def fallback_by_loudness(db, words, n, max_len, duration):
-    """No AI available: take the loudest stretches that contain speech."""
+_PUNCH = re.compile(r"(?i)\b(?:no way|oh my god|omg|what the|holy|are you (?:serious|kidding)|let'?s go+|clutch|insane|"
+                    r"crazy|wtf|haha+|lol|unreal|wait what|bro+|dude|yaar|bhai)\b")
+_FILLER = {"the", "and", "but", "for", "with", "are", "was", "were", "this", "that", "its", "you", "she", "they", "our", "from",
+           "not", "just", "have", "has", "had", "will", "can", "about", "into", "out", "all", "then", "live", "full", "new"}
+
+
+def _title_tags(title):
+    """Hashtags from the video's own title when there is no AI to write them: its real words, "GTA 6" as gta6."""
+    toks = re.findall(r"[A-Za-z0-9]+", str(title or ""))
+    merged = []
+    for t in toks:
+        if t.isdigit() and len(t) <= 2 and merged and merged[-1].isalpha() and len(merged[-1]) <= 4:
+            merged[-1] += t
+        else:
+            merged.append(t)
+    tags = []
+    for t in merged:
+        t = t.lower()
+        if len(t) >= 3 and t not in _FILLER and not t.isdigit() and t not in tags:
+            tags.append(t)
+    return tags[:4] + ["shorts"]
+
+
+def _headline(words, z, start, end):
+    """A hook and a title for a stretch the AI did not pick: the most eventful sentence said in it (shouted, a
+    question, a reaction like "no way"), or the generic pair if nothing stands out."""
+    best, top = "", -1
+    for l in make_lines([w for w in words if start <= w["s"] < end], z):
+        for frag in re.split(r"(?<=[.!?])\s+", l["text"]):
+            if len(frag.split()) < 2:
+                continue
+            score = (2 * frag.count("!") + frag.count("?") + 2 * len(_PUNCH.findall(frag)) + (3 if l["loud"] else 0)
+                     + sum(1 for w in frag.split() if len(w) > 2 and w.isupper()))
+            if score > top:
+                best, top = frag, score
+    if top < 1:
+        return "WAIT FOR IT", "Loud moment"
+    said = re.sub(r"[^\w'’\- ]", "", best).split()
+    title = best.strip()
+    if len(title) > 70:
+        title = title[:70].rsplit(" ", 1)[0]
+    return " ".join(said[:5]).upper(), title[:1].upper() + title[1:]
+
+
+def fallback_by_loudness(db, words, n, max_len, duration, title=""):
+    """No AI available: take the loudest stretches that contain speech, and give each a hook, a title and tags
+    taken from what was said in it and from the video's title."""
     z = loud_zscore(db)
+    tags = _title_tags(title)
     picks, order = [], np.argsort(-z)
     for sec in order:
         s = max(0.0, float(sec) - max_len * 0.6)
@@ -211,8 +281,9 @@ def fallback_by_loudness(db, words, n, max_len, duration):
             continue
         if not any(s <= w["s"] <= e for w in words):
             continue
-        picks.append({"start": s, "end": e, "score": 50, "category": "other", "hook": "WAIT FOR IT",
-                      "title": "Loud moment", "description": "", "hashtags": [], "highlight_words": [],
+        hook, head = _headline(words, z, s, e)
+        picks.append({"start": s, "end": e, "score": int(max(35, min(70, 45 + 5 * float(z[sec])))), "category": "other",
+                      "hook": hook, "title": head, "description": "", "hashtags": tags, "highlight_words": [],
                       "reason": "Picked by loudness because the AI was unavailable."})
         if len(picks) >= n:
             break
@@ -227,9 +298,10 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
     found, used_model, tokens = [], None, 0
     t = 0.0
     windows = []
+    win = int(max(120, min(1800, config.AI_WINDOW_MIN * 60))) if config.AI_WINDOW_MIN > 0 else WINDOW_SEC
     while t < duration:
-        windows.append((t, min(duration, t + WINDOW_SEC)))
-        t += WINDOW_SEC - OVERLAP_SEC
+        windows.append((t, min(duration, t + win)))
+        t += win - OVERLAP_SEC
     per_window = max(2, min(8, int(np.ceil(max_clips * 1.5 / len(windows))) + 1))
     for a, b in windows:
         chunk = [l for l in lines if a <= l["s"] < b]
@@ -245,7 +317,7 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
             log(f"AI window {a:.0f}-{b:.0f}s failed: {e}")
     note = ""
     if not used_model:
-        found = fallback_by_loudness(db, words, max_clips, max_len, duration)
+        found = fallback_by_loudness(db, words, max_clips, max_len, duration, title)
         note = "The AI was unavailable, so clips were picked by loudness only."
     clips = []
     for c in sorted(found, key=lambda c: -_num(c.get("score"))):

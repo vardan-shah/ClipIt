@@ -5,8 +5,11 @@
     PEAKCUT_AI_MODELS     one or more model ids, comma separated, tried in this order
     PEAKCUT_AI_KEY        your key (or PEAKCUT_AI_KEY_FILE, a file holding it)
     PEAKCUT_AI_BASE_URL   only for "custom" (any service that speaks the OpenAI chat format), or to override
+    PEAKCUT_AI_FALLBACKS  more services to try, in order, when those are out of free requests or down:
+                          "groq:llama-3.3-70b-versatile,ollama:llama3.1:8b" (keys: PEAKCUT_AI_KEY_GROQ and so on)
 
-Every service is asked for the same thing: JSON that follows a small schema. Gemini takes the schema directly.
+Every service is asked for the same thing: JSON that follows a small schema. Gemini takes the schema directly, and so
+does Ollama (through its own chat address, which also lets PeakCut say how much text the model may read at once).
 The others are told the schema in the prompt and asked for a JSON object, which works with any chat model."""
 import json
 import os
@@ -25,7 +28,7 @@ PROVIDERS = {
     "groq": ("Groq", "https://api.groq.com/openai/v1", "openai", "https://console.groq.com/keys", "llama-3.3-70b-versatile"),
     "openrouter": ("OpenRouter", "https://openrouter.ai/api/v1", "openai", "https://openrouter.ai/keys", "google/gemini-2.5-flash"),
     "anthropic": ("Claude", "https://api.anthropic.com/v1", "anthropic", "https://console.anthropic.com", ""),
-    "ollama": ("Ollama (on this machine)", "http://127.0.0.1:11434/v1", "openai", "https://ollama.com", "llama3.1"),
+    "ollama": ("Ollama (on this machine)", "http://127.0.0.1:11434", "ollama", "https://ollama.com", "llama3.1:8b"),
     "custom": ("Custom (OpenAI-compatible)", "", "openai", "", ""),
 }
 ALIASES = {"google": "gemini", "grok": "xai", "claude": "anthropic", "local": "ollama"}
@@ -87,9 +90,61 @@ def base_url() -> str:
     return c["base_url"] or PROVIDERS.get(c["provider"], ("", ""))[1]
 
 
-def ready() -> bool:
+# ---------------------------------------------------------------- which services may be asked, and in what order
+def _ollama_root(address: str) -> str:
+    """Ollama's own address, without the /v1 that its OpenAI-style address carries (older settings have it)."""
+    address = (address or "").rstrip("/")
+    return address[:-3] if address.endswith("/v1") else address
+
+
+def _spec(provider_id: str, address: str = "", key_value: str = "") -> dict:
+    """Everything needed to reach one service: which it is, how it is spoken to, where it is, and its key."""
+    p = PROVIDERS[provider_id]
+    return {"provider": provider_id, "how": p[2], "base": (address or p[1]).rstrip("/"), "key": key_value or ""}
+
+
+def _usable(spec: dict) -> bool:
+    return bool(spec["base"] and (spec["key"] or spec["provider"] in NO_KEY))
+
+
+def primary():
+    """The main service, as the dashboard or .env sets it. None when it is not set up."""
     c = current()
-    return bool(c["provider"] in PROVIDERS and c["models"] and base_url() and (c["key"] or c["provider"] in NO_KEY))
+    if c["provider"] not in PROVIDERS or not c["models"]:
+        return None
+    spec = _spec(c["provider"], c["base_url"], c["key"])
+    return spec if _usable(spec) else None
+
+
+def fallbacks() -> list:
+    """The services named in PEAKCUT_AI_FALLBACKS that are set up, as [(service, model)] in the order given.
+    An entry is "service:model", split at the first colon, so model ids that hold colons ("llama3.1:8b") work."""
+    out, c = [], current()
+    for item in config.AI_FALLBACKS:
+        name, _, model = item.partition(":")
+        p = ALIASES.get(name.strip().lower(), name.strip().lower())
+        model = model.strip()
+        if p not in PROVIDERS or not model:
+            continue
+        same = c["provider"] == p        # the main service's own address and key are used if no other is given
+        spec = _spec(p, config.ai_base_for(p) or (c["base_url"] if same else ""), config.ai_key_for(p) or (c["key"] if same else ""))
+        if _usable(spec):
+            out.append((spec, model))
+    return out
+
+
+def candidates() -> list:
+    """Every (service, model) that may be asked, in the order they are tried: the main service's models first,
+    then each fallback."""
+    out = []
+    spec = primary()
+    if spec:
+        out += [(spec, m) for m in current()["models"]]
+    return out + [x for x in fallbacks() if x not in out]
+
+
+def ready() -> bool:
+    return bool(candidates())
 
 
 def public() -> dict:
@@ -99,6 +154,7 @@ def public() -> dict:
     return {"provider": c["provider"], "models": c["models"], "base_url": c["base_url"], "has_key": bool(c["key"]),
             "key_hint": c["key"][-4:] if len(c["key"]) >= 12 else "", "ready": ready(), "label": label(),
             "saved_here": bool(_from_dashboard().get("provider")),
+            "fallbacks": [{"provider": PROVIDERS[s["provider"]][0], "model": m} for s, m in fallbacks()],
             "providers": [{"id": k, "label": v[0], "address": v[1], "needs_key": k not in NO_KEY, "key_url": v[3], "example": v[4]}
                           for k, v in PROVIDERS.items()]}
 
@@ -153,6 +209,8 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
         r = httpx.get(base, params={"pageSize": 200}, headers={"x-goog-api-key": k}, timeout=20)
     elif how == "anthropic":
         r = httpx.get(f"{base}/models", params={"limit": 200}, headers={"x-api-key": k, "anthropic-version": "2023-06-01"}, timeout=20)
+    elif how == "ollama":      # the models pulled onto this machine
+        r = httpx.get(f"{_ollama_root(base)}/api/tags", timeout=20)
     else:
         r = httpx.get(f"{base}/models", headers={"Authorization": f"Bearer {k}"} if k else {}, timeout=20)
     if r.status_code != 200:
@@ -161,26 +219,33 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
     if how == "gemini":
         found = [m.get("name", "").split("/")[-1] for m in data.get("models", [])
                  if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+    elif how == "ollama":
+        found = [m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)]
     else:
         found = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict)]
     return sorted({m for m in found if m})[:400]
 
 
+TEST_PROMPT = 'Answer with a JSON array that holds the single string "ok".'
+TEST_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}
+
+
 def test() -> dict:
-    """One tiny request with the settings in use, to prove the key, the address and the model all work."""
-    ms = models()
-    if not ready():
+    """One tiny request with the main service, to prove the key, the address and the model all work."""
+    spec = primary()
+    if not spec:
         raise ValueError("Save a service, a model and a key first.")
-    out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
-    return {"ok": True, "model": ms[0], "tokens": sent + wrote, "answer": str(out)[:80]}
+    model = current()["models"][0]
+    out, sent, wrote = call(model, TEST_PROMPT, TEST_SCHEMA, spec)
+    return {"ok": True, "model": model, "tokens": sent + wrote, "answer": str(out)[:80]}
 
 
 class AIError(RuntimeError):
     pass
 
 
-def _fail(r, model):
-    text = r.text[:300].replace(key() or "\0", "<key>")
+def _fail(r, spec):
+    text = r.text[:300].replace(spec["key"] or "\0", "<key>")
     raise AIError(f"HTTP {r.status_code} {text}")
 
 
@@ -200,8 +265,8 @@ def _wrapped(prompt, schema):
 
 
 def _parse(text):
-    """The JSON in an answer, even if the model wrapped it in a code fence or a sentence."""
-    text = (text or "").strip()
+    """The JSON in an answer, even if the model wrapped it in a code fence or a sentence, or thought out loud first."""
+    text = re.sub(r"(?is)<think>.*?</think>", "", text or "").strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
     try:
         out = json.loads(text)
@@ -216,18 +281,21 @@ def _parse(text):
 
 
 # ---------------------------------------------------------------- one call
-def call(model: str, prompt: str, schema: dict):
-    """Ask one model. Returns (the parsed JSON answer, tokens sent, tokens written back)."""
-    how = PROVIDERS[provider()][2]
-    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema)
+def call(model: str, prompt: str, schema: dict, spec=None):
+    """Ask one model. `spec` says which service (the main one when left out). Returns (the parsed JSON answer,
+    tokens sent, tokens written back)."""
+    if spec is None:
+        c = current()
+        spec = _spec(c["provider"], c["base_url"], c["key"])
+    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic, "ollama": _ollama}[spec["how"]](spec, model, prompt, schema)
 
 
-def _gemini(model, prompt, schema):
+def _gemini(spec, model, prompt, schema):
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}}
-    r = httpx.post(f"{base_url()}/{model}:generateContent", json=body, headers={"x-goog-api-key": key()}, timeout=120)
+    r = httpx.post(f"{spec['base']}/{model}:generateContent", json=body, headers={"x-goog-api-key": spec["key"]}, timeout=120)
     if r.status_code != 200:
-        _fail(r, model)
+        _fail(r, spec)
     data = r.json()
     text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
     u = data.get("usageMetadata", {})
@@ -235,30 +303,67 @@ def _gemini(model, prompt, schema):
     return json.loads(text), sent, max(0, int(u.get("totalTokenCount") or 0) - sent)   # the answer, and any thinking billed with it
 
 
-def _openai(model, prompt, schema):
-    headers = {"Authorization": f"Bearer {key()}"} if key() else {}
+def _openai(spec, model, prompt, schema):
+    headers = {"Authorization": f"Bearer {spec['key']}"} if spec["key"] else {}
     body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
     extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
     r = None
     for extra in extras:
-        r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=180)
+        r = httpx.post(f"{spec['base']}/chat/completions", json={**body, **extra}, headers=headers, timeout=180)
         if r.status_code not in (400, 422):
             break
     if r.status_code != 200:
-        _fail(r, model)
+        _fail(r, spec)
     data = r.json()
     u = data.get("usage") or {}
     return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _anthropic(model, prompt, schema):
+def _anthropic(spec, model, prompt, schema):
     body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
-    r = httpx.post(f"{base_url()}/messages", json=body, timeout=180,
-                   headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
+    r = httpx.post(f"{spec['base']}/messages", json=body, timeout=180,
+                   headers={"x-api-key": spec["key"], "anthropic-version": "2023-06-01"})
     if r.status_code != 200:
-        _fail(r, model)
+        _fail(r, spec)
     data = r.json()
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
     u = data.get("usage") or {}
     return _parse(text), int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
+
+
+def _ctx_for(text: str) -> int:
+    """How many tokens Ollama should be told to read for this request. Ollama reads only that many and drops the
+    rest without a word, which for a long transcript means losing the instructions. So: the set size, or the next
+    size up (doubling) for a request that is longer. A token is counted as 2.8 characters, which is more than
+    the real size, plus room for the answer."""
+    need = int(len(text) / 2.8) + 1800
+    ctx = config.OLLAMA_NUM_CTX
+    while ctx < need and ctx < config.OLLAMA_MAX_CTX:
+        ctx = min(ctx * 2, config.OLLAMA_MAX_CTX)
+    if need > ctx:
+        raise AIError(f"HTTP 413 That much text does not fit in the {ctx} tokens the model may read. Set "
+                      "PEAKCUT_AI_WINDOW_MIN to a smaller number (such as 6), or raise PEAKCUT_OLLAMA_MAX_CTX.")
+    return ctx
+
+
+def _ollama(spec, model, prompt, schema):
+    """A model run by Ollama, through its own chat address rather than its OpenAI-style one: only this one lets
+    PeakCut say how much text the model may read (otherwise 4096 tokens) and hand over the JSON shape the answer
+    must have, which makes small models far more dependable."""
+    text = _wrapped(prompt, schema)
+    shape = {"type": "object", "properties": {"items": _json_schema(schema)}, "required": ["items"]}
+    options = {"temperature": 0.4, "num_ctx": _ctx_for(text)}
+    headers = {"Authorization": f"Bearer {spec['key']}"} if spec["key"] else {}
+    r = None
+    for fmt in (shape, "json", None):       # an older Ollama refuses a shape: it is asked again with plain JSON, then with nothing
+        body = {"model": model, "stream": False, "messages": [{"role": "user", "content": text}], "options": options}
+        if fmt:
+            body["format"] = fmt
+        r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=body, headers=headers, timeout=900)
+        if r.status_code not in (400, 422):
+            break
+    if r.status_code != 200:
+        _fail(r, spec)
+    data = r.json()
+    return _parse((data.get("message") or {}).get("content")), int(data.get("prompt_eval_count") or 0), int(data.get("eval_count") or 0)

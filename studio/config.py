@@ -113,8 +113,32 @@ AI_MODELS = [m.strip() for m in env("PEAKCUT_AI_MODELS", "").split(",") if m.str
 AI_BASE_URL = env("PEAKCUT_AI_BASE_URL", "").rstrip("/")                      # only for "custom", or to override a provider's address
 
 
+# Extra services to fall back on when the main one is out of free requests or down. Each is "service:model", separated
+# by commas, tried in this order after the main service's own models. Each service's key is PEAKCUT_AI_KEY_<SERVICE>
+# (or PEAKCUT_AI_KEY_<SERVICE>_FILE), for example PEAKCUT_AI_KEY_GROQ. A custom service's address is
+# PEAKCUT_AI_BASE_URL_CUSTOM. This is how several free plans are used in turn, so no one of them has to be topped up.
+AI_FALLBACKS = [m.strip() for m in env("PEAKCUT_AI_FALLBACKS", "").split(",") if m.strip()]
+# How many minutes of transcript the AI reads in one request. 0 = the default (15).
+AI_WINDOW_MIN = float(env("PEAKCUT_AI_WINDOW_MIN") or 0)
+# A model run by Ollama reads only this many tokens at once, and quietly drops the rest if the request is longer
+# (Ollama's own default is 4096). PeakCut sets it on every request, and raises it for one that would not fit.
+OLLAMA_NUM_CTX = int(env("PEAKCUT_OLLAMA_NUM_CTX") or 16384)
+OLLAMA_MAX_CTX = int(env("PEAKCUT_OLLAMA_MAX_CTX") or 32768)
+
+
 def ai_key() -> str:
     return _secret("PEAKCUT_AI_KEY", "PEAKCUT_AI_KEY_FILE", r"\S{8,}")
+
+
+def ai_key_for(service: str) -> str:
+    """The key of one fallback service (see AI_FALLBACKS)."""
+    name = re.sub(r"\W", "_", service).upper()
+    return _secret(f"PEAKCUT_AI_KEY_{name}", f"PEAKCUT_AI_KEY_{name}_FILE", r"\S{8,}")
+
+
+def ai_base_for(service: str) -> str:
+    name = re.sub(r"\W", "_", service).upper()
+    return env(f"PEAKCUT_AI_BASE_URL_{name}", "").strip().rstrip("/")
 
 
 def ai_ready() -> bool:

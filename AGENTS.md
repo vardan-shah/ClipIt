@@ -18,7 +18,8 @@ A short map for contributors and AI coding assistants.
 | `studio/server.py` | Every web route, and the gate that runs before each request (who is asking, limits, headers) |
 | `studio/config.py` | Every setting, read from environment variables |
 | `studio/ai.py` | The only code that talks to an AI service, and the AI settings saved from the dashboard (`ai.json` in the data folder) |
-| `studio/brain.py` | The prompts: finding clips, live judging, hooks and titles, caption fixes |
+| `studio/ai_check.py` | `python -m studio.ai_check`: asks each AI service that is set up one tiny question and says what worked |
+| `studio/brain.py` | The prompts: finding clips, live judging, hooks and titles, caption fixes; passing a busy service over to the next fallback; the hook, title and tags used when there is no AI |
 | `studio/usage.py` | The record of AI calls and tokens shown on the AI usage page |
 | `studio/jobs.py` | The video pipeline and the fair queue |
 | `studio/live.py` | Live recording and clipping |
@@ -39,7 +40,11 @@ A short map for contributors and AI coding assistants.
   from memory when that user's counter has not moved.
 - **Text from videos is untrusted**: it goes into prompts through `brain._safe` and out through `brain._text`.
 - **Adding an AI provider**: add a row to `PROVIDERS` in `studio/ai.py`. If it speaks the OpenAI chat format that
-  is all; otherwise add one function that returns `(parsed JSON, tokens in, tokens out)`.
+  is all; otherwise add one function `(spec, model, prompt, schema)` that returns
+  `(parsed JSON, tokens in, tokens out)`, and list it in `call()`. Ollama is the example: it has its own function
+  because it must be told how much to read.
+- **Every AI call goes through `brain.ask_ai`**, which tries the main service's models and then each fallback
+  (`PEAKCUT_AI_FALLBACKS`). Do not call `ai.call` from anywhere else.
 - **Clips are rendered in a short temporary folder** and moved into place (`render.render_clip`): ffmpeg's caption
   step cannot open paths longer than 260 characters on Windows.
 - **Secrets** are read from the environment or from files named by `*_FILE` settings. Never write a key, a real
