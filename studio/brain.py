@@ -31,7 +31,7 @@ SCHEMA = {
     },
 }
 
-HEAD = """You are a clip scout for short-form gaming and streaming videos (YouTube Shorts, Reels, TikTok).
+HEAD = """You are a clip scout for short-form gaming and streaming videos (YouTube Shorts, Instagram Reels).
 Below is a timestamped transcript of part of a video. Each line starts with [seconds]. Lines marked (LOUD)
 are where the audio got much louder than usual: shouting, laughing, sudden action. Lines marked (CHAT)
 are where the live chat suddenly got much busier, which usually means viewers reacted to something.
@@ -398,7 +398,7 @@ def describe(text, title="", uploader=""):
 
 
 # ---------------------------------------------------------------- live: two judges that never see each other's input
-TRANSCRIPT_JUDGE = """You are a clip scout for short-form gaming and streaming videos (YouTube Shorts, Reels, TikTok).
+TRANSCRIPT_JUDGE = """You are a clip scout for short-form gaming and streaming videos (YouTube Shorts, Instagram Reels).
 You only get the WORDS spoken on a live stream: a timestamped transcript, each line starting with [seconds].
 You cannot hear how loud anything was or see the chat; judge purely on what was said.
 

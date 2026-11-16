@@ -1,6 +1,6 @@
 """Each user's connected social accounts and personal settings (alerts, posting pause).
 
-Stored under users/<user>/accounts. People connect YouTube, Instagram and TikTok with one click: they sign in on the
+Stored under users/<user>/accounts. People connect YouTube and Instagram with one click: they sign in on the
 platform's own page and come back. For that, whoever runs the server registers one app with each platform once
 (its id and secret), in .env or in the dashboard (Settings, Connected apps, Set up). Those belong to the server,
 never to users."""
@@ -30,9 +30,7 @@ YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleap
 IG = "https://graph.instagram.com"
 IG_UPLOAD = "https://rupload.facebook.com/ig-api-upload/v21.0"
 IG_SCOPES = "instagram_business_basic,instagram_business_content_publish"
-TT = "https://open.tiktokapis.com/v2"
-TT_SCOPES = "user.info.basic,video.publish"
-PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
+PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram"}
 
 
 def _dir() -> Path:
@@ -69,9 +67,8 @@ def _write(name, data):
 # ------------------------------------------------------------------ the server's apps with each platform
 # name -> (what the platform calls the id, what it calls the secret, .env names for both)
 APPS = {"google": ("Client ID", "Client secret", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
-        "instagram": ("Instagram app ID", "Instagram app secret", "PEAKCUT_IG_APP_ID", "PEAKCUT_IG_APP_SECRET"),
-        "tiktok": ("Client key", "Client secret", "PEAKCUT_TIKTOK_CLIENT_KEY", "PEAKCUT_TIKTOK_CLIENT_SECRET")}
-APP_FOR = {"youtube": "google", "instagram": "instagram", "tiktok": "tiktok"}
+        "instagram": ("Instagram app ID", "Instagram app secret", "PEAKCUT_IG_APP_ID", "PEAKCUT_IG_APP_SECRET")}
+APP_FOR = {"youtube": "google", "instagram": "instagram"}
 _apps_seen = {"at": None, "data": {}}
 
 
@@ -180,11 +177,8 @@ def connect_url(platform: str) -> str:
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
             "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": YT_SCOPES,
             "access_type": "offline", "prompt": "consent", "state": state})
-    if platform == "instagram":
-        return "https://www.instagram.com/oauth/authorize?" + urlencode({
-            "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_SCOPES, "state": state})
-    return "https://www.tiktok.com/v2/auth/authorize/?" + urlencode({
-        "client_key": cid, "redirect_uri": redirect, "response_type": "code", "scope": TT_SCOPES, "state": state})
+    return "https://www.instagram.com/oauth/authorize?" + urlencode({
+        "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_SCOPES, "state": state})
 
 
 def connect_finish(platform: str, code: str, state: str) -> dict:
@@ -192,7 +186,7 @@ def connect_finish(platform: str, code: str, state: str) -> dict:
     code = (code or "").split("#")[0]           # Instagram adds "#_" to the code
     if not code:
         raise ValueError("The platform did not send a sign-in code. Try again.")
-    return {"youtube": _youtube_finish, "instagram": _instagram_finish, "tiktok": _tiktok_finish}[platform](code)
+    return {"youtube": _youtube_finish, "instagram": _instagram_finish}[platform](code)
 
 
 # ------------------------------------------------------------------ links the platforms can fetch a clip from
@@ -456,124 +450,3 @@ def instagram_views(acc, media_id: str):
         return None
     data = r.json().get("data", [])
     return int(data[0]["values"][0]["value"]) if data else None
-
-
-# ------------------------------------------------------------------ TikTok (Login Kit + Content Posting API)
-def _tt(r, what):
-    """TikTok answers with an "error" object even on success; anything but "ok" is a failure."""
-    try:
-        data = r.json()
-    except ValueError:
-        data = {}
-    err = data.get("error") if isinstance(data.get("error"), dict) else {}
-    if r.status_code >= 400 or (err and err.get("code") not in (None, "ok")) or (isinstance(data.get("error"), str)):
-        code = err.get("code") or data.get("error") or r.status_code
-        msg = err.get("message") or data.get("error_description") or r.text[:200]
-        e = RuntimeError(f"{what} failed ({code}): {msg}")
-        e.code = code
-        raise e
-    return data
-
-
-def _tt_tokens(form: dict) -> dict:
-    cid, secret = app_keys("tiktok")
-    return _tt(httpx.post(f"{TT}/oauth/token/", data={"client_key": cid, "client_secret": secret, **form},
-                          headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=30), "TikTok sign-in")
-
-
-def _tiktok_finish(code: str) -> dict:
-    tok = _tt_tokens({"code": code, "grant_type": "authorization_code", "redirect_uri": redirect_for("tiktok")})
-    if "video.publish" not in str(tok.get("scope", "")):
-        raise ValueError("PeakCut needs permission to post videos. Connect again and allow posting.")
-    acc = {"id": f"tt_{tok['open_id']}", "platform": "tiktok", "name": "TikTok account", "added": time.time(),
-           "open_id": tok["open_id"], "access_token": tok["access_token"], "refresh_token": tok["refresh_token"],
-           "expires": time.time() + int(tok.get("expires_in", 7200)) - 120}
-    try:
-        info = _tiktok_creator(acc)
-        acc["name"] = "@" + info["creator_username"] if info.get("creator_username") else info.get("creator_nickname") or acc["name"]
-    except Exception:  # noqa: BLE001 - the name is only for showing
-        pass
-    _put(acc)
-    return acc
-
-
-def _tt_token(acc) -> str:
-    if acc.get("expires", 0) > time.time():
-        return acc["access_token"]
-    tok = _tt_tokens({"grant_type": "refresh_token", "refresh_token": acc["refresh_token"]})
-    # every refresh hands out a new refresh token and retires the old one: keep the new one straight away
-    acc.update(access_token=tok["access_token"], refresh_token=tok.get("refresh_token", acc["refresh_token"]),
-               expires=time.time() + int(tok.get("expires_in", 7200)) - 120)
-    _put(acc)
-    return acc["access_token"]
-
-
-def _tt_post(acc, path_, body, what):
-    return _tt(httpx.post(f"{TT}{path_}", json=body, timeout=60,
-                          headers={"Authorization": f"Bearer {_tt_token(acc)}", "Content-Type": "application/json; charset=UTF-8"}),
-               what).get("data") or {}
-
-
-def _tiktok_creator(acc) -> dict:
-    return _tt_post(acc, "/post/publish/creator_info/query/", {}, "Reading the TikTok account")
-
-
-# PeakCut's visibility setting -> what TikTok calls it, best first
-TT_PRIVACY = {"public": ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS"],
-              "unlisted": ["MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR"], "private": ["SELF_ONLY"]}
-
-
-def _tt_chunks(size: int) -> tuple:
-    """(chunk size, how many). Up to 64 MB goes in one piece; bigger files in 10 MB pieces, the last one taking the rest."""
-    if size <= 64_000_000:
-        return size, 1
-    return 10_000_000, size // 10_000_000
-
-
-def tiktok_upload(acc, path: Path, caption: str, privacy: str = "public"):
-    info = _tiktok_creator(acc)
-    options = info.get("privacy_level_options") or ["SELF_ONLY"]
-    level = next((p for p in TT_PRIVACY.get(privacy, ["SELF_ONLY"]) if p in options), "SELF_ONLY" if "SELF_ONLY" in options else options[0])
-    size = path.stat().st_size
-    chunk, count = _tt_chunks(size)
-
-    def init(lv):
-        return _tt_post(acc, "/post/publish/video/init/", {
-            "post_info": {"title": caption[:2200], "privacy_level": lv, "disable_duet": False, "disable_comment": False,
-                          "disable_stitch": False, "video_cover_timestamp_ms": 1000},
-            "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": count}},
-            "Starting the TikTok post")
-    note = ""
-    try:
-        box = init(level)
-    except RuntimeError as e:
-        # A TikTok app that has not passed TikTok's review can only post privately: post privately, and say so.
-        if "unaudited" not in str(getattr(e, "code", "")) or level == "SELF_ONLY" or "SELF_ONLY" not in options:
-            raise
-        level, note = "SELF_ONLY", "Posted as private: this server's TikTok app hasn't passed TikTok's review yet."
-        box = init(level)
-    with path.open("rb") as f:
-        for n in range(count):
-            first = n * chunk
-            last = size - 1 if n == count - 1 else first + chunk - 1
-            part = f.read(last - first + 1)
-            r = httpx.put(box["upload_url"], content=part, timeout=900, headers={
-                "Content-Type": "video/mp4", "Content-Length": str(len(part)), "Content-Range": f"bytes {first}-{last}/{size}"})
-            if r.status_code not in (200, 201, 206):
-                raise RuntimeError(f"Uploading to TikTok failed ({r.status_code}): {r.text[:200]}")
-    for _ in range(120):
-        st = _tt_post(acc, "/post/publish/status/fetch/", {"publish_id": box["publish_id"]}, "Checking the TikTok post")
-        if st.get("status") == "PUBLISH_COMPLETE":
-            break
-        if st.get("status") == "FAILED":
-            raise RuntimeError(f"TikTok did not publish the video: {st.get('fail_reason') or 'no reason given'}")
-        time.sleep(5)
-    else:
-        raise RuntimeError("TikTok took too long to publish the video.")
-    ids = st.get("publicaly_available_post_id") or st.get("publicly_available_post_id") or []
-    user = info.get("creator_username") or ""
-    url = f"https://www.tiktok.com/@{user}/video/{ids[0]}" if ids and user else ""
-    if note:
-        acc["detail"] = "Posts are private until this server's TikTok app is reviewed"
-        _put(acc)
-    return str(ids[0]) if ids else box["publish_id"], url

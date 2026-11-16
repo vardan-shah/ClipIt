@@ -1327,7 +1327,7 @@ def remove_account(aid: str):
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- connecting YouTube, Instagram and TikTok
+# ---------------------------------------------------------------- connecting YouTube and Instagram
 # Connect sends the browser to the platform's own sign-in page; the platform sends it back here, and the person lands
 # on Settings, Connected apps, with the account added (or a message saying what went wrong).
 def _back(**q):
