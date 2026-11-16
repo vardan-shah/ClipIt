@@ -39,6 +39,12 @@ check("the owner's things work", c.post("/api/creators", json={"name": "Someone"
 check("the owner cannot delete themself", c.post("/api/account/delete", json={"confirm": st["user"]["email"]}, headers=ORIGIN).status_code, 409)
 
 # ---- with no sign-in, the address and the sender still have to be right
+check("our own page is believed even when the address in between was rewritten",
+      c.put("/api/settings", json={}, headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"}).status_code, 200)
+check("another website is refused whatever address it claims",
+      c.put("/api/settings", json={}, headers={"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}).status_code, 403)
+check("another program on this computer's page is refused",
+      c.put("/api/settings", json={}, headers={"Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"}).status_code, 403)
 check("another website cannot change things", c.post("/api/creators", json={"name": "x"}, headers={"Origin": "https://evil.example"}).status_code, 403)
 check("a made-up name pointing at this machine is refused", c.get("/api/status", headers={"Host": "evil.example:8765"}).status_code, 403)
 for host in ("localhost:8765", "192.168.1.20:8765", "[::1]:8765", "127.0.0.1"):

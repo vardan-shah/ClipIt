@@ -35,8 +35,55 @@ def has_hindi(text: str) -> bool:
 
 
 def needs_roman(text: str) -> bool:
-    """Is this Hindi or Urdu script, which captions should show in Roman letters?"""
-    return bool(DEVANAGARI.search(text or "") or OTHER_SCRIPT.search(text or ""))
+    """Is this in a script that captions should show in Roman letters instead (Hindi, Urdu, Arabic, Russian-style,
+    Greek or Korean letters)?"""
+    text = text or ""
+    return bool(DEVANAGARI.search(text) or OTHER_SCRIPT.search(text) or MORE_SCRIPTS.search(text))
+
+
+def drawable(text: str) -> bool:
+    """Can the caption fonts draw this? They have Latin letters (with accents), digits and punctuation only."""
+    return not any(ch.isalpha() and not (ord(ch) < 0x250 or 0x1E00 <= ord(ch) <= 0x1EFF) for ch in text or "")
+
+
+# ---------------------------------------------------------------- Russian-style (Cyrillic), Greek and Korean letters
+MORE_SCRIPTS = re.compile(r"[\u0370-\u03FF\u0400-\u04FF\uAC00-\uD7A3]")
+_CYR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo", "ж": "zh", "з": "z", "и": "i", "й": "y",
+        "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+        "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+        "я": "ya", "є": "ye", "і": "i", "ї": "yi", "ґ": "g", "ў": "u", "ђ": "dj", "ј": "j", "љ": "lj", "њ": "nj",
+        "ћ": "c", "џ": "dz", "ә": "a", "ғ": "g", "қ": "q", "ң": "n", "ө": "o", "ұ": "u", "ү": "u", "һ": "h"}
+_GRK = {"α": "a", "β": "v", "γ": "g", "δ": "d", "ε": "e", "ζ": "z", "η": "i", "θ": "th", "ι": "i", "κ": "k", "λ": "l",
+        "μ": "m", "ν": "n", "ξ": "x", "ο": "o", "π": "p", "ρ": "r", "σ": "s", "ς": "s", "τ": "t", "υ": "y", "φ": "f",
+        "χ": "ch", "ψ": "ps", "ω": "o"}
+_K_FIRST = ["g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"]
+_K_VOWEL = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we", "wi", "yu",
+            "eu", "ui", "i"]
+_K_LAST = ["", "k", "k", "k", "n", "n", "n", "t", "l", "k", "m", "l", "l", "l", "p", "l", "m", "p", "p", "t", "t", "ng",
+           "t", "t", "k", "t", "p", "t"]
+
+
+def _letters(run: str) -> str:
+    import unicodedata
+    out = []
+    for ch in unicodedata.normalize("NFD", run):
+        if unicodedata.combining(ch):
+            continue                                   # Greek accents
+        low = ch.lower()
+        r = _CYR.get(low, _GRK.get(low))
+        if r is None:
+            out.append(ch)
+        else:
+            out.append(r.capitalize() if ch != low and r else r)
+    return "".join(out)
+
+
+def _korean(run: str) -> str:
+    out = []
+    for ch in run:
+        n = ord(ch) - 0xAC00
+        out.append(_K_FIRST[n // 588] + _K_VOWEL[n % 588 // 28] + _K_LAST[n % 28] if 0 <= n < 11172 else ch)
+    return "".join(out)
 
 
 def _word(w: str) -> str:
@@ -198,7 +245,17 @@ def to_roman(text: str) -> str:
     if OTHER_SCRIPT.search(text):
         text = text.replace("،", ",").replace("؟", "?").replace("۔", ".")
         text = re.sub(_URDU_RUN, lambda m: _urdu_word(m.group(0)), text)
+    if MORE_SCRIPTS.search(text):
+        import unicodedata
+        text = "".join(unicodedata.normalize("NFD", ch) if "\u0370" <= ch <= "\u04FF" or "\u1F00" <= ch <= "\u1FFF" else ch for ch in text)
+        text = re.sub(r"[\uAC00-\uD7A3]+", lambda m: _korean(m.group(0)), text)
+        text = unicodedata_nfc(re.sub(r"[\u0370-\u03FF\u0400-\u04FF\u0300-\u036F]+", lambda m: _letters(m.group(0)), text))
     return text
+
+
+def unicodedata_nfc(s: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFC", s)
 
 
 def words(ws: list) -> list:

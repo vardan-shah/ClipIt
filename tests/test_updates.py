@@ -3,7 +3,7 @@ so nothing leaves this machine), and only the owner is told."""
 import json, os, sys, tempfile
 from pathlib import Path
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-upd-")
-os.environ.update(DATABASE_URL="", PEAKCUT_ACCOUNTS="0", PEAKCUT_PUBLIC_URL="http://127.0.0.1:8765", PEAKCUT_AI_KEY="", PEAKCUT_AI_MODELS="")
+os.environ.update(PEAKCUT_UPDATE_CHECK="1", DATABASE_URL="", PEAKCUT_ACCOUNTS="0", PEAKCUT_PUBLIC_URL="http://127.0.0.1:8765", PEAKCUT_AI_KEY="", PEAKCUT_AI_MODELS="")
 sys.path.insert(0, ".")
 from fastapi.testclient import TestClient
 from studio import config, db, server, updates
@@ -30,48 +30,75 @@ check("...and on a single commit", updates.current(), "c" * 40)
 config.ROOT = real_root
 check("this folder's own version is found", len(updates.current()), 40)
 
-# ---- asking GitHub
+# ---- asking GitHub: one small question a minute, and the list of changes only when something is new
 class R:
-    def __init__(self, code, data):
-        self.status_code, self._d = code, data
+    def __init__(self, code, data=None, content=b""):
+        self.status_code, self._d, self.content = code, data, content
     def json(self):
         return self._d
 asked = []
-answer = {"now": None}
+gh = {"top": "", "refs_code": 200, "compare": None}
+def refs(sha):
+    return (b"001e# service=git-upload-pack\n0000015b" + sha.encode() + b" HEAD\x00multi_ack thin-pack\n003f"
+            + sha.encode() + b" refs/heads/main\n0000")
 def fake_get(url, timeout=None, headers=None, params=None):
-    asked.append((url, headers or {}))
-    return answer["now"]
+    asked.append(url)
+    if url.endswith("/info/refs"):
+        return R(gh["refs_code"], content=refs(gh["top"]) if gh["top"] else b"")
+    return gh["compare"] or R(403, {"message": "rate limit"})
 updates.httpx.get = fake_get
-here = updates.current()
-answer["now"] = R(200, {"ahead_by": 2, "commits": [
-    {"sha": "1111111aaaa", "commit": {"message": "Connect TikTok in one click\n\nlong text", "committer": {"date": "2026-11-15T10:00:00Z"}}},
-    {"sha": "2222222bbbb", "commit": {"message": "Captions always in English", "committer": {"date": "2026-11-16T10:00:00Z"}}}]})
+here = updates.RUNNING
+check("the version PeakCut started on is remembered", len(here), 40)
+NEWER, NEWEST = "1" * 40, "2" * 40
+two = R(200, {"ahead_by": 2, "commits": [
+    {"sha": "aaaaaaa1", "commit": {"message": "Connect TikTok in one click\n\nlong text", "committer": {"date": "2026-11-15T10:00:00Z"}}},
+    {"sha": NEWER, "commit": {"message": "Captions always in English", "committer": {"date": "2026-11-16T10:00:00Z"}}}]})
+
+gh.update(top=here)
+check("up to date: no notice", updates.check(force=True), None)
+check("...and only the one small question was asked", [u.split("/")[-1] for u in asked], ["refs"])
+check("it goes to the address git itself uses, not the API", asked[0], f"https://github.com/{updates.REPO}.git/info/refs")
+
+asked.clear(); gh.update(top=NEWER, compare=two)
 got = updates.check(force=True)
-check("two newer commits are found", (got["behind"], got["latest"], got["current"]), (2, "2222222", here[:7]))
+check("a new commit is noticed while PeakCut is running, with no restart", (got["behind"], got["latest"], got["current"], got["restart"]), (2, "1111111", here[:7], False))
 check("newest change first, one line each, with its date", [(n["title"], n["date"]) for n in got["notes"]],
       [("Captions always in English", "2026-11-16"), ("Connect TikTok in one click", "2026-11-15")])
-check("GitHub is asked for exactly this commit against the branch", asked[-1][0], f"https://api.github.com/repos/{updates.REPO}/compare/{here}...main")
-check("nothing about this server is sent", set(asked[-1][1]) <= {"Accept", "User-Agent"} and "PeakCut" in asked[-1][1]["User-Agent"])
 asked.clear()
-check("the answer is kept: GitHub is not asked again for hours", (updates.check(), len(asked)), (got, 0))
-answer["now"] = R(200, {"ahead_by": 0, "commits": []})
-check("up to date: no notice", updates.check(force=True), None)
-answer["now"] = R(404, {"message": "Not Found"})
+for _ in range(5):
+    updates.check(force=True)
+check("the list of changes is asked for once per new commit, not every minute", sum("api.github.com" in u for u in asked), 0)
+check("a look inside the same minute asks nothing at all", (asked.clear(), updates.check(), len(asked))[1:], (got, 0))
+
+asked.clear(); gh.update(top=NEWEST, compare=None)
+got = updates.check(force=True)
+check("when the API will not say what changed, the notice still shows", (got["latest"], got["behind"], got["notes"]), ("2222222", None, []))
+
+real_current = updates.current
+updates.current = lambda: NEWEST                      # git pull was run: the folder has the new files
+gh.update(compare=two)
+updates._state["notes"] = None
+got = updates.check(force=True)
+check("after git pull, the notice asks for a restart instead", got["restart"], True)
+updates.current = real_current
+
+gh.update(compare=R(200, {"ahead_by": 0, "commits": []}), top="3" * 40)
+check("a copy with its own newer commits is not told to update", updates.check(force=True), None)
+gh.update(refs_code=404, top=NEWER)
 check("a private or unknown repository: no notice, no error", updates.check(force=True), None)
+gh.update(refs_code=200, top=NEWER, compare=two)
+shown = updates.check(force=True)
 def boom(*a, **k):
     raise OSError("offline")
 updates.httpx.get = boom
-check("offline: no notice, no error", updates.check(force=True), None)
+check("offline for a moment: the notice stays, no error", updates.check(force=True), shown)
 
 # ---- only the owner is told
 updates.httpx.get = fake_get
-answer["now"] = R(200, {"ahead_by": 1, "commits": [{"sha": "3333333", "commit": {"message": "Fix", "committer": {"date": "2026-11-17"}}}]})
-updates.check(force=True)
 c = TestClient(server.app, base_url="http://127.0.0.1:8765")
 st = c.get("/api/status").json()
-check("the owner's dashboard gets the notice", (st["update"] or {}).get("behind"), 1)
+check("the owner's dashboard gets the notice", (st["update"] or {}).get("behind"), 2)
 updates.ON = False
-updates._state.update(checked=0, result=None)
 check("PEAKCUT_UPDATE_CHECK=0: never asks, never tells", (updates.check(force=True), c.get("/api/status").json()["update"]), (None, None))
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")

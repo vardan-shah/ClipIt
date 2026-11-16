@@ -405,6 +405,34 @@ def render_one(job, clip, words):
     save(job)
 
 
+CLIP_MINUTES = float(config.env("PEAKCUT_CLIP_MINUTES", "15"))     # the longest one clip may take to make
+
+
+def _wait_for_clips(job, futures, began, workers):
+    """Wait for a video's clips, but not for ever. A clip that hangs (a download that stalls, an encoder that
+    freezes) used to keep the whole video "in progress", and no other clip could be re-made. Now it is marked as
+    failed after CLIP_MINUTES and the video finishes with the clips that did work."""
+    left, given_up = list(futures), 0
+    late = "This clip took too long and was stopped. Open it and press Save and re-make to try again."
+    while left:
+        still = []
+        for f, clip in left:
+            if f.done():
+                f.result()
+                continue
+            t = began.get(clip["id"])
+            if (t and time.time() - t > CLIP_MINUTES * 60) or (not t and given_up >= workers):
+                given_up += 1
+                clip.update(status="error", error=late)
+                creators.log(job["creator"], f"Clip stopped after {CLIP_MINUTES:g} minutes: {clip.get('title') or clip.get('hook') or clip['id']}")
+                save(job)
+                continue
+            still.append((f, clip))
+        left = still
+        if left:
+            time.sleep(1)
+
+
 def _english_part(job, clip):
     """YouTube's English captions for just this clip, for a video in another language. Fetched once per video."""
     if (job.get("source") or {}).get("type") != "url":
@@ -473,6 +501,11 @@ def _run_job(job):
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
+    if not transcribe.model_ready() and not transcribe.REMOTE:
+        from . import fetch_model
+        _set(job, stage="Getting the speech model (one time, about 480 MB)")
+        fetch_model.ensure()
+        _set(job, stage="Getting the audio")
     fetch = ThreadPoolExecutor(1)
     video = None
     if src["type"] == "url":
@@ -537,7 +570,10 @@ def _run_job(job):
 
     exact = {}      # clip id -> (from, to, words): our own model's words for just that clip
 
+    began = {}      # clip id -> when work on it started
+
     def make(clip, words_now):
+        began[clip["id"]] = time.time()
         if src["type"] == "url" and (pieces or not whole_video()):
             _fetch_piece(job, clip, audio)
         if clip["status"] != "error" and yt and yt[1].lower().startswith("en"):
@@ -584,7 +620,7 @@ def _run_job(job):
         for c in job["clips"]:            # clips found before the restart that were not finished yet
             if c.get("status") not in ("done", "error"):
                 c["status"] = "queued"
-                futures.append(renders.submit(ctx.bind(make), c, list(words)))
+                futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         save(job)
     # The transcript of the next part is written while the AI is still reading this one (the AI is a wait on the
     # network, the transcript is work on this machine), so neither waits for the other.
@@ -637,20 +673,19 @@ def _run_job(job):
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
                      end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"], status="queued", version=0)
             job["clips"].append(c)
-            futures.append(renders.submit(ctx.bind(make), c, list(words)))
+            futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
         job["done_blocks"] = bi + 1       # a restart from here on carries on with the next part
         save(job)
     if futures:
         _set(job, stage="Finishing the clips", progress=max(job["progress"], 0.92))
-    for f in futures:
-        f.result()
+    _wait_for_clips(job, futures, began, renders._max_workers)
     if exact:           # keep our own words for the clips in the saved transcript, so editing a clip later uses them
         for a_s, b_s, tw in exact.values():
             words = [w for w in words if not a_s <= w["s"] < b_s] + tw
         words.sort(key=lambda w: w["s"])
         (d / "words.json").write_text(json.dumps(words), encoding="utf-8")
-    renders.shutdown()
+    renders.shutdown(wait=False)
     ahead.shutdown(wait=False)
     fetch.shutdown(wait=False)
     del audio

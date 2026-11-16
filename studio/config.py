@@ -52,7 +52,71 @@ def _read_secret(var: str, file_var: str, pattern: str) -> str:
 
 
 # ---------------------------------------------------------------- where things live
-DATA_DIR = Path(env("PEAKCUT_DATA") or ROOT / "data")
+# Everything PeakCut keeps is in one folder. Which one: PEAKCUT_DATA in .env if it is set; otherwise the folder the
+# owner chose in Settings, Storage (kept in storage.json); otherwise "data" inside PeakCut's own folder.
+STORAGE_FILE = Path(env("PEAKCUT_STORAGE_FILE") or ROOT / "storage.json")
+
+
+def _move_folder(old: Path, new: Path) -> bool:
+    """Move everything from the old folder into the new one. Done at start, before anything is open. True when
+    nothing is left behind; anything that could not be moved stays where it was and is tried again next start."""
+    import shutil
+    if not old.is_dir() or old.resolve() == new.resolve():
+        return True
+    items = list(old.iterdir())
+    if items:
+        print(f"\n  Moving PeakCut's folder to {new} ({len(items)} things). This is done once and can take a while...", flush=True)
+    done = True
+    for item in items:
+        target = new / item.name
+        try:
+            if target.exists() and item.is_dir():
+                for sub in item.iterdir():           # the folder is already there (made empty, or half moved): fill it
+                    if not (target / sub.name).exists():
+                        shutil.move(str(sub), str(target / sub.name))
+                if not any(item.iterdir()):
+                    item.rmdir()
+                else:
+                    done = False
+            elif not target.exists():
+                shutil.move(str(item), str(target))
+            else:
+                done = False
+        except OSError as e:
+            print(f"  Could not move {item.name}: {e}", flush=True)
+            done = False
+    if done:
+        try:
+            old.rmdir()
+        except OSError:
+            pass
+        print("  Moved.\n", flush=True)
+    return done
+
+
+def _data_folder():
+    if env("PEAKCUT_DATA"):
+        return Path(env("PEAKCUT_DATA")), "env"
+    try:
+        chosen = json.loads(STORAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        chosen = {}
+    if not chosen.get("path"):
+        return ROOT / "data", "default"
+    new = Path(chosen["path"])
+    try:
+        new.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise SystemExit(f"\n  PeakCut's folder is set to {new}, and that can't be reached right now.\n"
+                         f"  Connect that drive and start PeakCut again, or delete {STORAGE_FILE} to go back to the\n"
+                         f"  folder inside PeakCut (your videos and clips stay where they are).\n")
+    if chosen.get("move_from"):
+        if _move_folder(Path(chosen["move_from"]), new):
+            STORAGE_FILE.write_text(json.dumps({"path": str(new)}, indent=1), encoding="utf-8")
+    return new, "chosen"
+
+
+DATA_DIR, DATA_FROM = _data_folder()
 USERS_DIR = DATA_DIR / "users"          # users/<user id>/{creators,jobs,accounts}
 MODELS_DIR = Path(env("PEAKCUT_MODELS") or DATA_DIR / "models")
 TMP_DIR = DATA_DIR / "tmp"

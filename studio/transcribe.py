@@ -36,7 +36,8 @@ _remote_down_until = 0.0
 
 
 def model_ready() -> bool:
-    return (config.ASR_MODEL_DIR / "tokens.txt").exists()
+    from . import fetch_model
+    return fetch_model.ready()
 
 
 def _model_files(d) -> dict:
@@ -51,6 +52,8 @@ def _model_files(d) -> dict:
 
 def _new():
     import sherpa_onnx
+    from . import fetch_model
+    fetch_model.ensure()             # downloaded here, once, if it was never fetched
     d = config.ASR_MODEL_DIR
     return sherpa_onnx.OfflineRecognizer.from_transducer(
         **_model_files(d),

@@ -9,6 +9,7 @@ secrets/
 *service-account*.json
 *client_secret*.json
 data/
+storage.json
 *.db
 *.db-wal
 *.db-shm

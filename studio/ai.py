@@ -244,6 +244,55 @@ class AIError(RuntimeError):
     pass
 
 
+problem = {"text": "", "at": 0.0}       # why the AI last failed, for the dashboard; cleared when it answers again
+
+
+def explain(e, spec=None, model=None) -> str:
+    """What went wrong with an AI call, in words the owner can act on. When it is known which service and model
+    were asked (a fallback, say) they are named; otherwise it speaks of the main service."""
+    text, low = str(e), str(e).lower()
+    name = model or (models() or ["?"])[0]
+    prov = spec["provider"] if spec and spec.get("provider") in PROVIDERS else provider()
+    who = PROVIDERS[prov][0] if prov in PROVIDERS else label()
+    if "404" in text or "not found" in low or "does not exist" in low or "unknown model" in low or "not_found" in low:
+        if prov == "ollama":
+            return f"Ollama doesn't have the model \"{name}\" yet. In Terminal, run: ollama pull {name}"
+        return f"{who} doesn't know the model \"{name}\". Open Settings, AI, press Find models and pick one from the list."
+    if "401" in text or "403" in text or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
+        return f"{who} refused the key. Paste a working key under Settings, AI."
+    if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
+        return f"{who} says the key has hit its limit or has no credit left. Check the account with {who}, or try again later."
+    if "connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low:
+        return f"PeakCut couldn't reach {who}. Check the internet connection" + (" and that Ollama is running." if prov == "ollama" else ".")
+    return ""
+
+
+def explain_all(items) -> str:
+    """The same for several services that were asked in turn: items are (error, spec, model). The first two
+    different reasons, in the order the services were tried."""
+    said = []
+    for e, spec, model in items:
+        why = explain(e, spec, model)
+        if why and why not in said:
+            said.append(why)
+    return " ".join(said[:2])
+
+
+def note_problems(items):
+    import time
+    why = explain_all(items)
+    if why:
+        problem.update(text=why, at=time.time())
+
+
+def note_problem(e, spec=None, model=None):
+    note_problems([(e, spec, model)])
+
+
+def clear_problem():
+    problem.update(text="", at=0.0)
+
+
 def _fail(r, spec):
     text = r.text[:300].replace(spec["key"] or "\0", "<key>")
     raise AIError(f"HTTP {r.status_code} {text}")

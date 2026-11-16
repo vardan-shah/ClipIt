@@ -24,6 +24,16 @@ from . import account, load
 from . import (accounts, ai, alerts, auth, config, creators, ctx, db, jobs, live, media, posting,
                profiles, render, safe, transcribe, usage)
 
+from . import tools as _tools  # noqa: E402
+
+
+def _quiet(fn):
+    try:
+        fn()
+    except Exception as e:  # noqa: BLE001 - said again, in plain words, when a video needs it
+        print(f"  {e}", flush=True)
+
+
 app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None)
 WEB = config.ROOT / "web"
 OPEN = ("/api/auth/", "/pub/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
@@ -54,9 +64,16 @@ def _startup():
         except OSError:
             pass
     render.install_fonts()
+    if _tools.missing():
+        print("\n  " + _tools.HELP + "\n", flush=True)
+    if not transcribe.REMOTE and config.env("PEAKCUT_FETCH_MODEL", "1") != "0":     # the speech model: fetched now, in the background, if it was never downloaded
+        from . import fetch_model
+        threading.Thread(target=lambda: _quiet(fetch_model.ensure), daemon=True).start()
     jobs.start()
     live.start()
     posting.start()
+    from . import updates
+    updates.start()                  # looks for a newer PeakCut every minute, in the background
 
 
 # ================================================================ the gate: who is asking, and are they allowed
@@ -79,8 +96,7 @@ class Gate:
             await resp(scope, receive, send)
 
         if method not in ("GET", "HEAD", "OPTIONS"):
-            origin = req.headers.get("origin")
-            if origin and urlparse(origin).netloc != req.headers.get("host") and origin.rstrip("/") != config.PUBLIC_URL:
+            if not _from_here(req):
                 return await deny(403, "Cross-site requests are not allowed.")
             # Only the upload may be big. Everything else is a small form, and is cut off at 256 KB whatever its
             # headers claim, so nobody can fill the server's memory by posting junk (signed in or not).
@@ -127,8 +143,7 @@ class Gate:
                 return await deny(404, "Not Found")
             if method not in ("GET", "HEAD"):
                 # changes must come from our own pages: the browser has to say so, and it has to match
-                origin = (req.headers.get("origin") or "").rstrip("/")
-                if not origin or (urlparse(origin).netloc != req.headers.get("host") and origin != config.PUBLIC_URL):
+                if not _from_here(req, must_say=True):
                     return await deny(403, "Cross-site requests are not allowed.")
         if not user and not is_open:
             if path == "/app" or path.startswith("/app/"):
@@ -244,6 +259,21 @@ def _ip(request: Request) -> str:
     if named and request.headers.get(named) and _from_cdn(peer):
         return request.headers[named].split(",")[0].strip()[:64]
     return peer
+
+
+def _from_here(req, must_say=False) -> bool:
+    """Did this change come from PeakCut's own page, and not from another website?
+
+    The browser's own answer is trusted first: it marks every request "same-origin" or not, and a web page cannot
+    fake that mark. Comparing the page's address with the address the request arrived at is only the fallback,
+    because that comparison goes wrong when something in between rewrites either of them (a proxy, an antivirus
+    web shield, a browser extension), which made every save fail with "Cross-site requests are not allowed"."""
+    if (req.headers.get("sec-fetch-site") or "").lower() == "same-origin":
+        return True
+    origin = (req.headers.get("origin") or "").rstrip("/").lower()
+    if not origin:
+        return not must_say
+    return urlparse(origin).netloc == (req.headers.get("host") or "").lower() or origin == config.PUBLIC_URL.lower()
 
 
 def _own_address(host: str) -> bool:
@@ -541,7 +571,7 @@ def status(request: Request):
     from . import notices
     from . import updates
     me_ = _me(request)
-    return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
+    return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
             "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
             "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS}
@@ -556,6 +586,9 @@ def _job_or_404(jid: str):
 
 
 def _job_slots():
+    from . import tools
+    if tools.missing():
+        raise HTTPException(503, tools.HELP)
     if jobs.busy_count() >= config.MAX_ACTIVE_JOBS_PER_USER:
         raise HTTPException(429, f"You already have {config.MAX_ACTIVE_JOBS_PER_USER} videos in progress. Wait for one to finish.")
 
@@ -568,7 +601,8 @@ _disk: dict = {}
 def _quota():
     """Each account has a fixed amount of disk space. Measured at most once a minute."""
     if load.disk_full():
-        raise HTTPException(503, "PeakCut is out of space for new videos for the moment. Please try again shortly.")
+        from . import storage
+        raise HTTPException(507, storage.full_message())
     uid = ctx.uid()
     got = _disk.get(uid)
     if not got or time.time() - got[0] > 60:
@@ -1259,7 +1293,7 @@ def ai_test(request: Request):
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, "The AI did not answer: " + _ai_error(e))
+        raise HTTPException(502, ai.explain(e) or "The AI did not answer: " + _ai_error(e))
 
 
 # ================================================================ posting, accounts, settings
@@ -1343,6 +1377,56 @@ def public_clip(token: str):
     if not f or not f.is_file():
         raise HTTPException(404)
     return FileResponse(f, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})
+
+
+# ---------------------------------------------------------------- where PeakCut keeps everything (Settings, Storage)
+def _on_this_computer(request: Request) -> bool:
+    """Is the person sitting at the computer PeakCut runs on? Only then can a folder window be opened for them."""
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1", "localhost") and not config.env("PEAKCUT_TRUST_PROXY")
+
+
+@app.get("/api/storage")
+def storage_get(request: Request):
+    from . import storage
+    _admin(request)
+    return storage.info(_on_this_computer(request))
+
+
+@app.post("/api/storage/open")
+def storage_open(request: Request):
+    from . import storage
+    _admin(request)
+    if not _on_this_computer(request):
+        raise HTTPException(400, "The folder can only be opened on the computer PeakCut runs on.")
+    try:
+        storage.open_folder()
+    except OSError as e:
+        raise HTTPException(500, "Couldn't open the folder: " + safe.friendly(e, 200))
+    return {"ok": True}
+
+
+@app.post("/api/storage/pick")
+def storage_pick(request: Request):
+    from . import storage
+    _admin(request)
+    if not _on_this_computer(request):
+        raise HTTPException(400, "Type the folder's path instead: a folder window can only be shown on the computer PeakCut runs on.")
+    return {"path": storage.pick_folder()}
+
+
+@app.put("/api/storage")
+def storage_put(request: Request, body: dict = Body(...)):
+    from . import storage
+    _admin(request)
+    try:
+        if body.get("cancel"):
+            storage.cancel_change()
+            return storage.info(_on_this_computer(request))
+        storage.change(str(body.get("path") or ""), bool(body.get("move", True)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return storage.info(_on_this_computer(request))
 
 
 @app.get("/api/apps")

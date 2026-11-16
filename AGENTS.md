@@ -5,7 +5,7 @@ A short map for contributors and AI coding assistants.
 ## Run and test
 
 - Run: `python -m studio.server` (settings from `.env`; see `.env.example`). Needs Python 3.10+ and `ffmpeg`.
-- Speech model, once: `python -m studio.fetch_model`.
+- The speech model (about 480 MB) downloads by itself on first start; `python -m studio.fetch_model` gets it ahead of time.
 - Tests: `python tests/run.py`. It starts a throwaway copy on a spare port with an empty data folder. Run it
   before and after any change to `studio/`. No keys needed.
 - To try a risky change by hand without touching real data:
