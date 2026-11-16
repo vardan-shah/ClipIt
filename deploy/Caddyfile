@@ -1,5 +1,5 @@
 # HTTPS certificates are fetched automatically for the domain.
-{$PEAKCUT_DOMAIN} {
+{$CLIPIT_DOMAIN} {
 	encode zstd gzip
 	@upload path /api/upload /api/upload/*
 	request_body @upload {

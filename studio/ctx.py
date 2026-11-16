@@ -8,7 +8,7 @@ import collections
 import contextlib
 import contextvars
 
-_uid = contextvars.ContextVar("peakcut_uid", default=None)
+_uid = contextvars.ContextVar("clipit_uid", default=None)
 
 
 class NoUser(RuntimeError):

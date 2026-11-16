@@ -1,4 +1,4 @@
-"""Running PeakCut for nothing: Ollama on this machine, several free plans used in turn, and clips that are still
+"""Running ClipIt for nothing: Ollama on this machine, several free plans used in turn, and clips that are still
 written up when no AI answers. The network is replaced, so nothing leaves this machine and no key is needed."""
 import contextlib
 import io
@@ -8,11 +8,11 @@ import sys
 import tempfile
 import types
 
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-free-")
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-free-")
 os.environ["DATABASE_URL"] = ""
-os.environ.update(PEAKCUT_AI_PROVIDER="gemini", PEAKCUT_AI_MODELS="model-a, model-b", PEAKCUT_AI_KEY="test-key-123456",
-                  PEAKCUT_AI_BASE_URL="", PEAKCUT_AI_KEY_GROQ="groq-key-123456", PEAKCUT_AI_WINDOW_MIN="",
-                  PEAKCUT_AI_FALLBACKS="groq:g-model, ollama:llama3.1:8b, nonsense:x, openrouter:meta/llama:free")
+os.environ.update(CLIPIT_AI_PROVIDER="gemini", CLIPIT_AI_MODELS="model-a, model-b", CLIPIT_AI_KEY="test-key-123456",
+                  CLIPIT_AI_BASE_URL="", CLIPIT_AI_KEY_GROQ="groq-key-123456", CLIPIT_AI_WINDOW_MIN="",
+                  CLIPIT_AI_FALLBACKS="groq:g-model, ollama:llama3.1:8b, nonsense:x, openrouter:meta/llama:free")
 sys.path.insert(0, ".")
 import httpx  # noqa: E402
 import numpy as np  # noqa: E402
@@ -136,7 +136,7 @@ try:
     check("ollama: a request too long for any reading size is refused, with what to change", False, "no error")
 except ai.AIError as e:
     check("ollama: a request too long for any reading size is refused, with what to change",
-          "PEAKCUT_AI_WINDOW_MIN" in str(e) and brain._how_it_failed(e) == "refused", str(e)[:100])
+          "CLIPIT_AI_WINDOW_MIN" in str(e) and brain._how_it_failed(e) == "refused", str(e)[:100])
 reset(**{"11434": [Reply(404, {"error": "model 'nope' not found"})]})
 try:
     ai.call("nope", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
@@ -161,11 +161,11 @@ reset(**{"generativelanguage": [OK_GEMINI]})
 brain.find_clips(words, np.zeros(1200), 1200.0, title="T", uploader="U")
 small = hits("generativelanguage")
 config.AI_WINDOW_MIN = 0
-check("PEAKCUT_AI_WINDOW_MIN: smaller windows mean more, smaller requests", small > big >= 2, str((small, big)))
+check("CLIPIT_AI_WINDOW_MIN: smaller windows mean more, smaller requests", small > big >= 2, str((small, big)))
 
 # ---- only fallbacks set up
-saved = (config.AI_MODELS, os.environ["PEAKCUT_AI_KEY"])
-config.AI_MODELS, os.environ["PEAKCUT_AI_KEY"] = [], ""
+saved = (config.AI_MODELS, os.environ["CLIPIT_AI_KEY"])
+config.AI_MODELS, os.environ["CLIPIT_AI_KEY"] = [], ""
 config._kept.clear()
 check("a fallback alone is enough to be ready", ai.ready() and [m for _s, m in ai.candidates()] == ["g-model", "llama3.1:8b"])
 try:
@@ -176,7 +176,7 @@ except ValueError:
 
 # ---- no AI at all: clips are still written up from what was said
 config.AI_FALLBACKS = []
-os.environ["PEAKCUT_AI_KEY_GROQ"] = ""
+os.environ["CLIPIT_AI_KEY_GROQ"] = ""
 config._kept.clear()
 check("with nothing set up there is no AI", not ai.ready() and ai.candidates() == [])
 check("hashtags come from the video's own title", brain._title_tags("GTA 6 Launch Day Gameplay LIVE") == ["gta6", "launch", "day", "gameplay", "shorts"],
@@ -204,9 +204,9 @@ check("no AI: nothing eventful said gives the plain hook, never an empty one", q
 
 # ---- the health check
 config.AI_FALLBACKS = ["groq:g-model", "ollama:llama3.1:8b"]
-os.environ["PEAKCUT_AI_KEY_GROQ"] = "groq-key-123456"
+os.environ["CLIPIT_AI_KEY_GROQ"] = "groq-key-123456"
 config.AI_MODELS = ["model-a"]
-os.environ["PEAKCUT_AI_KEY"] = "test-key-123456"
+os.environ["CLIPIT_AI_KEY"] = "test-key-123456"
 config._kept.clear()
 reset(**{"generativelanguage": [BAD_KEY], "groq.com": [OK_OPENAI], "11434": [httpx.ConnectError("refused")]})
 buf = io.StringIO()
@@ -216,15 +216,15 @@ text = buf.getvalue()
 check("ai_check: says what worked and what did not, with what to do", code == 0 and "OK    Groq / g-model" in text and "key was refused" in text
       and "Ollama is not running" in text and "1 of 3 worked" in text, text)
 config.AI_MODELS, config.AI_FALLBACKS = [], []
-os.environ["PEAKCUT_AI_KEY"] = ""
+os.environ["CLIPIT_AI_KEY"] = ""
 config._kept.clear()
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     code = ai_check.main()
-check("ai_check: with nothing set up it says how to start and that PeakCut still works", code == 1 and "still works" in buf.getvalue())
+check("ai_check: with nothing set up it says how to start and that ClipIt still works", code == 1 and "still works" in buf.getvalue())
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil  # noqa: E402
 db.engine.dispose()
-shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
+shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

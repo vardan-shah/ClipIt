@@ -2,9 +2,9 @@
 and an AI model name the service does not know. Runs against the code directly; nothing is downloaded."""
 import io, os, shutil, sys, tarfile, tempfile
 from pathlib import Path
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-tools-"); os.environ["DATABASE_URL"] = ""
-os.environ.pop("PEAKCUT_MODELS", None)          # this test makes and removes a model: only ever inside its own folder
-os.environ.update(PEAKCUT_AI_PROVIDER="gemini", PEAKCUT_AI_MODELS="gemini-old", PEAKCUT_AI_KEY="test-key-123456")
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-tools-"); os.environ["DATABASE_URL"] = ""
+os.environ.pop("CLIPIT_MODELS", None)          # this test makes and removes a model: only ever inside its own folder
+os.environ.update(CLIPIT_AI_PROVIDER="gemini", CLIPIT_AI_MODELS="gemini-old", CLIPIT_AI_KEY="test-key-123456")
 sys.path.insert(0, ".")
 from studio import ai, config, fetch_model, safe, tools
 fails = []
@@ -29,14 +29,14 @@ check("an unrelated error is left as it is", safe.friendly(ValueError("That link
 tools._places = lambda: [Path(hidden)]
 check("installed but not on the PATH yet: found in its folder and used from there", (tools.setup(), bool(shutil.which("ffmpeg"))), ([], True))
 os.environ["PATH"] = real_path
-os.environ["PEAKCUT_FFMPEG_DIR"] = hidden
+os.environ["CLIPIT_FFMPEG_DIR"] = hidden
 tools._places = real_places
-check("PEAKCUT_FFMPEG_DIR is looked in first", tools._places()[0], Path(hidden))
+check("CLIPIT_FFMPEG_DIR is looked in first", tools._places()[0], Path(hidden))
 tools.setup()
 
 # ---- the speech model
 d = config.ASR_MODEL_DIR
-assert str(d).startswith(os.environ["PEAKCUT_DATA"]), "the test must only touch its own folder"
+assert str(d).startswith(os.environ["CLIPIT_DATA"]), "the test must only touch its own folder"
 check("no model to begin with", fetch_model.ready(), False)
 d.mkdir(parents=True); (d / "tokens.txt").write_text("a 1")
 check("half a model (a download that was cut off) does not count", fetch_model.ready(), False)
@@ -73,5 +73,5 @@ ai.note_problem("HTTP 404 model not found")
 check("the reason is kept for the dashboard, and cleared when the AI answers again", (bool(ai.problem["text"]), (ai.clear_problem(), ai.problem["text"])[1]), (True, ""))
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
-shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True); shutil.rmtree(hidden, ignore_errors=True)
+shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True); shutil.rmtree(hidden, ignore_errors=True)
 sys.exit(1 if fails else 0)

@@ -1,7 +1,7 @@
-/* PeakCut ASCII field: a soft colour cloud with loose clusters of small characters that fade in and out as it drifts.
+/* ClipIt ASCII field: a soft colour cloud with loose clusters of small characters that fade in and out as it drifts.
    Smooth: every character keeps its own glyph and only its opacity moves, and the cloud is drawn small and scaled up
    (a cheap, natural blur), so it can run at full frame rate.
-   Usage: PeakAscii(canvasElement, {strength: 1}). Pauses off screen and when the tab is hidden; still for reduced motion. */
+   Usage: ClipAscii(canvasElement, {strength: 1}). Pauses off screen and when the tab is hidden; still for reduced motion. */
 (function () {
   const GLYPHS = "-=+xX+x=";
   const CLOUD = [[255, 206, 166], [255, 228, 198], [255, 192, 146], [255, 238, 220]];
@@ -21,7 +21,7 @@
   const noise = (x, y) => vnoise(x, y) * .65 + vnoise(x * 2.1 + 17, y * 2.1 + 5) * .35;
   const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-  function PeakAscii(canvas, opts) {
+  function ClipAscii(canvas, opts) {
     opts = Object.assign({cell: 11, line: 17, strength: 1}, opts || {});
     const ctx = canvas.getContext("2d");
     const cloud = document.createElement("canvas"), cctx = cloud.getContext("2d");
@@ -94,5 +94,5 @@
     document.addEventListener("visibilitychange", start);
     start();
   }
-  window.PeakAscii = PeakAscii;
+  window.ClipAscii = ClipAscii;
 })();

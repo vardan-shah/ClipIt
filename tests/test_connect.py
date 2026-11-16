@@ -3,9 +3,9 @@ stand-ins answering the way their documentation says, so nothing leaves this mac
 banned in India), and a TikTok account saved by an older version is ignored rather than breaking anything."""
 import json, os, sys, tempfile, time
 from urllib.parse import parse_qs, urlparse
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-connect-")
-os.environ.update(DATABASE_URL="", PEAKCUT_ACCOUNTS="1", PEAKCUT_PUBLIC_URL="https://clips.example.com", PEAKCUT_VERIFY_EMAIL="0",
-                  GOOGLE_CLIENT_ID="", GOOGLE_CLIENT_SECRET="", GOOGLE_CLIENT_FILE="", PEAKCUT_IG_APP_ID="", PEAKCUT_IG_APP_SECRET="")
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-connect-")
+os.environ.update(DATABASE_URL="", CLIPIT_ACCOUNTS="1", CLIPIT_PUBLIC_URL="https://clips.example.com", CLIPIT_VERIFY_EMAIL="0",
+                  GOOGLE_CLIENT_ID="", GOOGLE_CLIENT_SECRET="", GOOGLE_CLIENT_FILE="", CLIPIT_IG_APP_ID="", CLIPIT_IG_APP_SECRET="")
 sys.path.insert(0, ".")
 from pathlib import Path
 import sqlalchemy as sa
@@ -165,5 +165,5 @@ with ctx.as_user(user.id):
     check("Instagram: published, with its link", (rid, url), ("media1", "https://www.instagram.com/reel/abc/"))
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
-import shutil; db.engine.dispose(); shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
+import shutil; db.engine.dispose(); shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

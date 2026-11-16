@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 from . import config, db
 
-COOKIE = "peakcut_session"
+COOKIE = "clipit_session"
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,180}\.[A-Za-z]{2,24}$")
 _SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1}
 _states: dict = {}            # one-time values for the Google redirect: state -> (created, next path)
@@ -135,8 +135,8 @@ def _use_link(token: str, purpose: str) -> str:
 def send_verify(u) -> bool:
     from . import mailer
     link = f"{config.PUBLIC_URL}/auth/verify?t={_make_link(u.id, 'verify', 3 * 86400)}"
-    return mailer.send(u.email, "Confirm your email for PeakCut", "Confirm your email",
-                       "Thanks for joining PeakCut. Confirm this is your email address to start clipping.",
+    return mailer.send(u.email, "Confirm your email for ClipIt", "Confirm your email",
+                       "Thanks for joining ClipIt. Confirm this is your email address to start clipping.",
                        "Confirm my email", link, "The link works for 3 days. If you didn't sign up, you can ignore this email.")
 
 
@@ -154,8 +154,8 @@ def forgot(email: str):
     if not u or u.disabled:
         return
     link = f"{config.PUBLIC_URL}/reset?t={_make_link(u.id, 'reset', 3600)}"
-    mailer.send(u.email, "Reset your PeakCut password", "Reset your password",
-                "Someone asked to reset the password for this PeakCut account. If that was you, choose a new one below.",
+    mailer.send(u.email, "Reset your ClipIt password", "Reset your password",
+                "Someone asked to reset the password for this ClipIt account. If that was you, choose a new one below.",
                 "Choose a new password", link, "The link works for one hour. If you didn't ask for this, ignore this email and your password stays the same.")
 
 

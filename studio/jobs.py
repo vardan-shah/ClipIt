@@ -405,7 +405,7 @@ def render_one(job, clip, words):
     save(job)
 
 
-CLIP_MINUTES = float(config.env("PEAKCUT_CLIP_MINUTES", "15"))     # the longest one clip may take to make
+CLIP_MINUTES = float(config.env("CLIPIT_CLIP_MINUTES", "15"))     # the longest one clip may take to make
 
 
 def _wait_for_clips(job, futures, began, workers):

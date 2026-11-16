@@ -67,7 +67,7 @@ def _write(name, data):
 # ------------------------------------------------------------------ the server's apps with each platform
 # name -> (what the platform calls the id, what it calls the secret, .env names for both)
 APPS = {"google": ("Client ID", "Client secret", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
-        "instagram": ("Instagram app ID", "Instagram app secret", "PEAKCUT_IG_APP_ID", "PEAKCUT_IG_APP_SECRET")}
+        "instagram": ("Instagram app ID", "Instagram app secret", "CLIPIT_IG_APP_ID", "CLIPIT_IG_APP_SECRET")}
 APP_FOR = {"youtube": "google", "instagram": "instagram"}
 _apps_seen = {"at": None, "data": {}}
 
@@ -306,7 +306,7 @@ def _youtube_finish(code: str) -> dict:
         "code": code, "client_id": cid, "client_secret": secret,
         "redirect_uri": redirect_for("youtube"), "grant_type": "authorization_code"}, timeout=30), "Google sign-in").json()
     if "refresh_token" not in tok:
-        raise ValueError("Google did not return a long-lived sign-in. Remove PeakCut's access in your Google account and connect again.")
+        raise ValueError("Google did not return a long-lived sign-in. Remove ClipIt's access in your Google account and connect again.")
     ch = _check(httpx.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
                           headers={"Authorization": f"Bearer {tok['access_token']}"}, timeout=30), "Reading the channel").json()
     if not ch.get("items"):
@@ -369,7 +369,7 @@ def _instagram_finish(code: str) -> dict:
     if isinstance(short.get("data"), list) and short["data"]:
         short = short["data"][0]
     if "instagram_business_content_publish" not in str(short.get("permissions", "instagram_business_content_publish")):
-        raise ValueError("PeakCut needs permission to publish. Connect again and leave every box ticked.")
+        raise ValueError("ClipIt needs permission to publish. Connect again and leave every box ticked.")
     long = _check(httpx.get(f"{IG}/access_token", params={"grant_type": "ig_exchange_token", "client_secret": secret,
                                                          "access_token": short["access_token"]}, timeout=30),
                   "Keeping the Instagram sign-in").json()

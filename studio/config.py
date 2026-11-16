@@ -20,6 +20,17 @@ def _load_dotenv():
 
 
 _load_dotenv()
+
+
+def _accept_old_names():
+    """Settings used to be called PEAKCUT_<NAME>, from before this was ClipIt. Those still work: when only the old
+    name is set it is used as the new one. When both are set, the new name wins."""
+    for k, v in list(os.environ.items()):
+        if k.startswith("PEAKCUT_"):
+            os.environ.setdefault("CLIPIT_" + k[len("PEAKCUT_"):], v)
+
+
+_accept_old_names()
 env = os.environ.get
 
 
@@ -52,9 +63,9 @@ def _read_secret(var: str, file_var: str, pattern: str) -> str:
 
 
 # ---------------------------------------------------------------- where things live
-# Everything PeakCut keeps is in one folder. Which one: PEAKCUT_DATA in .env if it is set; otherwise the folder the
-# owner chose in Settings, Storage (kept in storage.json); otherwise "data" inside PeakCut's own folder.
-STORAGE_FILE = Path(env("PEAKCUT_STORAGE_FILE") or ROOT / "storage.json")
+# Everything ClipIt keeps is in one folder. Which one: CLIPIT_DATA in .env if it is set; otherwise the folder the
+# owner chose in Settings, Storage (kept in storage.json); otherwise "data" inside ClipIt's own folder.
+STORAGE_FILE = Path(env("CLIPIT_STORAGE_FILE") or ROOT / "storage.json")
 
 
 def _move_folder(old: Path, new: Path) -> bool:
@@ -65,7 +76,7 @@ def _move_folder(old: Path, new: Path) -> bool:
         return True
     items = list(old.iterdir())
     if items:
-        print(f"\n  Moving PeakCut's folder to {new} ({len(items)} things). This is done once and can take a while...", flush=True)
+        print(f"\n  Moving ClipIt's folder to {new} ({len(items)} things). This is done once and can take a while...", flush=True)
     done = True
     for item in items:
         target = new / item.name
@@ -95,8 +106,8 @@ def _move_folder(old: Path, new: Path) -> bool:
 
 
 def _data_folder():
-    if env("PEAKCUT_DATA"):
-        return Path(env("PEAKCUT_DATA")), "env"
+    if env("CLIPIT_DATA"):
+        return Path(env("CLIPIT_DATA")), "env"
     try:
         chosen = json.loads(STORAGE_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -107,9 +118,9 @@ def _data_folder():
     try:
         new.mkdir(parents=True, exist_ok=True)
     except OSError:
-        raise SystemExit(f"\n  PeakCut's folder is set to {new}, and that can't be reached right now.\n"
-                         f"  Connect that drive and start PeakCut again, or delete {STORAGE_FILE} to go back to the\n"
-                         f"  folder inside PeakCut (your videos and clips stay where they are).\n")
+        raise SystemExit(f"\n  ClipIt's folder is set to {new}, and that can't be reached right now.\n"
+                         f"  Connect that drive and start ClipIt again, or delete {STORAGE_FILE} to go back to the\n"
+                         f"  folder inside ClipIt (your videos and clips stay where they are).\n")
     if chosen.get("move_from"):
         if _move_folder(Path(chosen["move_from"]), new):
             STORAGE_FILE.write_text(json.dumps({"path": str(new)}, indent=1), encoding="utf-8")
@@ -118,16 +129,16 @@ def _data_folder():
 
 DATA_DIR, DATA_FROM = _data_folder()
 USERS_DIR = DATA_DIR / "users"          # users/<user id>/{creators,jobs,accounts}
-MODELS_DIR = Path(env("PEAKCUT_MODELS") or DATA_DIR / "models")
+MODELS_DIR = Path(env("CLIPIT_MODELS") or DATA_DIR / "models")
 TMP_DIR = DATA_DIR / "tmp"
 FONTS_DIR = DATA_DIR / "fonts"          # caption fonts, copied from studio/fonts so every server renders the same
 # YouTube already has a word-by-word transcript of most videos. With this on, that is what the AI reads to find the
 # clips (seconds instead of transcribing hours), and our own model is run only on the clips themselves.
-YT_TRANSCRIPT = env("PEAKCUT_YT_TRANSCRIPT", "1") != "0"
-# the compact model for processors; a machine with a graphics card sets PEAKCUT_ASR_MODEL to the full-precision one
-ASR_MODEL_NAME = env("PEAKCUT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
+YT_TRANSCRIPT = env("CLIPIT_YT_TRANSCRIPT", "1") != "0"
+# the compact model for processors; a machine with a graphics card sets CLIPIT_ASR_MODEL to the full-precision one
+ASR_MODEL_NAME = env("CLIPIT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
 ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
-DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'peakcut.db').as_posix()}"
+DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'clipit.db').as_posix()}"
 
 for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -140,22 +151,23 @@ def user_dir(uid: str) -> Path:
 
 
 # ---------------------------------------------------------------- the site
-HOST = env("PEAKCUT_HOST", "127.0.0.1")
-PORT = int(env("PEAKCUT_PORT") or "8765")
-PUBLIC_URL = (env("PEAKCUT_PUBLIC_URL") or f"http://127.0.0.1:{PORT}").rstrip("/")   # e.g. https://peakcut.com
+HOST = env("CLIPIT_HOST", "127.0.0.1")
+PORT = int(env("CLIPIT_PORT") or "8765")
+PUBLIC_URL = (env("CLIPIT_PUBLIC_URL") or f"http://127.0.0.1:{PORT}").rstrip("/")   # e.g. https://clips.example.com
 HTTPS = PUBLIC_URL.startswith("https://")
-SESSION_DAYS = int(env("PEAKCUT_SESSION_DAYS", "30"))
-# Accounts are off by default: PeakCut opens straight into the dashboard, with no sign-in, which is what you want
-# on your own computer. On a server that other people can reach, set PEAKCUT_ACCOUNTS=1: everyone then signs up
+SESSION_DAYS = int(env("CLIPIT_SESSION_DAYS", "30"))
+# Accounts are off by default: ClipIt opens straight into the dashboard, with no sign-in, which is what you want
+# on your own computer. On a server that other people can reach, set CLIPIT_ACCOUNTS=1: everyone then signs up
 # and signs in, and each person only sees their own videos.
-ACCOUNTS = env("PEAKCUT_ACCOUNTS", "0") == "1"
-# The two buttons along the top of the dashboard: the project's code, and where to follow its maker (feedback goes
-# there too). Set either to an empty value to hide that button, or point them at your own pages in a fork.
-REPO_URL = env("PEAKCUT_REPO_URL", "https://github.com/haziqahmedqasmi/peakcut").strip()
-FOLLOW_URL = env("PEAKCUT_FOLLOW_URL", "https://www.instagram.com/haziq.builds/").strip()
+ACCOUNTS = env("CLIPIT_ACCOUNTS", "0") == "1"
+# The buttons along the top of the dashboard: the project's code, and a page to follow its maker (feedback goes there
+# too). There is no follow page unless you set one (CLIPIT_FOLLOW_URL, for example your Instagram page); without it,
+# feedback opens a new issue on the project's code page. Set either to an empty value to hide that button.
+REPO_URL = env("CLIPIT_REPO_URL", "https://github.com/vardan-shah/ClipIt").strip()
+FOLLOW_URL = env("CLIPIT_FOLLOW_URL", "").strip()
 
 # ---------------------------------------------------------------- limits (per user, and for the whole server)
-# Your own PeakCut has no limits unless you set them: 0 (the default) means "none" for every limit below. The
+# Your own ClipIt has no limits unless you set them: 0 (the default) means "none" for every limit below. The
 # machine still protects itself: new work waits while the processor, memory or disk are nearly full (load.py).
 _NONE = 10 ** 7                      # what "no limit" becomes: far beyond anything real, and still a plain number
 
@@ -165,55 +177,55 @@ def _limit(name: str, default: str = "0"):
     return _NONE if v <= 0 else v
 
 
-MAX_UPLOAD_MB = int(_limit("PEAKCUT_MAX_UPLOAD_MB"))              # the largest video file someone may upload
+MAX_UPLOAD_MB = int(_limit("CLIPIT_MAX_UPLOAD_MB"))              # the largest video file someone may upload
 # A big file is sent in pieces of this size and joined here, because web servers and CDNs in front of the app
 # refuse very large single requests (Cloudflare stops at 100 MB).
-UPLOAD_PART_MB = max(5, int(env("PEAKCUT_UPLOAD_PART_MB", "40")))
+UPLOAD_PART_MB = max(5, int(env("CLIPIT_UPLOAD_PART_MB", "40")))
 # The most videos that may ever run at once. How many actually run is decided by how busy the machine is (load.py).
-JOB_WORKERS = int(env("PEAKCUT_JOB_WORKERS") or max(2, os.cpu_count() or 4))
-MAX_ACTIVE_JOBS_PER_USER = int(_limit("PEAKCUT_MAX_JOBS_PER_USER", "5"))    # videos sent and worked on at once
-MAX_LIVE_TOTAL = int(env("PEAKCUT_MAX_LIVE") or max(4, 2 * (os.cpu_count() or 4)))   # ceiling; real load decides below it
-MAX_LIVE_PER_USER = int(_limit("PEAKCUT_MAX_LIVE_PER_USER"))     # streams one person records at once
-MAX_VIDEO_HOURS = _limit("PEAKCUT_MAX_VIDEO_HOURS")              # longest video (or chosen part of one) that is processed
-MAX_LIVE_HOURS = _limit("PEAKCUT_MAX_LIVE_HOURS")                # a recording stops by itself after this long
-MAX_USER_GB = _limit("PEAKCUT_MAX_USER_GB")                      # disk space one account may fill
-MAX_CREATORS = int(_limit("PEAKCUT_MAX_CREATORS"))               # creators one account may add
+JOB_WORKERS = int(env("CLIPIT_JOB_WORKERS") or max(2, os.cpu_count() or 4))
+MAX_ACTIVE_JOBS_PER_USER = int(_limit("CLIPIT_MAX_JOBS_PER_USER", "5"))    # videos sent and worked on at once
+MAX_LIVE_TOTAL = int(env("CLIPIT_MAX_LIVE") or max(4, 2 * (os.cpu_count() or 4)))   # ceiling; real load decides below it
+MAX_LIVE_PER_USER = int(_limit("CLIPIT_MAX_LIVE_PER_USER"))     # streams one person records at once
+MAX_VIDEO_HOURS = _limit("CLIPIT_MAX_VIDEO_HOURS")              # longest video (or chosen part of one) that is processed
+MAX_LIVE_HOURS = _limit("CLIPIT_MAX_LIVE_HOURS")                # a recording stops by itself after this long
+MAX_USER_GB = _limit("CLIPIT_MAX_USER_GB")                      # disk space one account may fill
+MAX_CREATORS = int(_limit("CLIPIT_MAX_CREATORS"))               # creators one account may add
 ALLOWED_SITES = tuple(s.strip().lower() for s in env(
-    "PEAKCUT_ALLOWED_SITES", "youtube.com,youtu.be,twitch.tv,kick.com").split(",") if s.strip())
+    "CLIPIT_ALLOWED_SITES", "youtube.com,youtu.be,twitch.tv,kick.com").split(",") if s.strip())
 
 # ---------------------------------------------------------------- AI (bring your own key: see studio/ai.py)
 # These are the starting values. Whatever is saved from the dashboard (Settings, AI) is used instead.
-AI_PROVIDER = env("PEAKCUT_AI_PROVIDER", "gemini").strip().lower()            # gemini, openai, xai, groq, openrouter, anthropic, ollama, custom
-AI_MODELS = [m.strip() for m in env("PEAKCUT_AI_MODELS", "").split(",") if m.strip()]   # tried in this order
-AI_BASE_URL = env("PEAKCUT_AI_BASE_URL", "").rstrip("/")                      # only for "custom", or to override a provider's address
+AI_PROVIDER = env("CLIPIT_AI_PROVIDER", "gemini").strip().lower()            # gemini, openai, xai, groq, openrouter, anthropic, ollama, custom
+AI_MODELS = [m.strip() for m in env("CLIPIT_AI_MODELS", "").split(",") if m.strip()]   # tried in this order
+AI_BASE_URL = env("CLIPIT_AI_BASE_URL", "").rstrip("/")                      # only for "custom", or to override a provider's address
 
 
 # Extra services to fall back on when the main one is out of free requests or down. Each is "service:model", separated
-# by commas, tried in this order after the main service's own models. Each service's key is PEAKCUT_AI_KEY_<SERVICE>
-# (or PEAKCUT_AI_KEY_<SERVICE>_FILE), for example PEAKCUT_AI_KEY_GROQ. A custom service's address is
-# PEAKCUT_AI_BASE_URL_CUSTOM. This is how several free plans are used in turn, so no one of them has to be topped up.
-AI_FALLBACKS = [m.strip() for m in env("PEAKCUT_AI_FALLBACKS", "").split(",") if m.strip()]
+# by commas, tried in this order after the main service's own models. Each service's key is CLIPIT_AI_KEY_<SERVICE>
+# (or CLIPIT_AI_KEY_<SERVICE>_FILE), for example CLIPIT_AI_KEY_GROQ. A custom service's address is
+# CLIPIT_AI_BASE_URL_CUSTOM. This is how several free plans are used in turn, so no one of them has to be topped up.
+AI_FALLBACKS = [m.strip() for m in env("CLIPIT_AI_FALLBACKS", "").split(",") if m.strip()]
 # How many minutes of transcript the AI reads in one request. 0 = the default (15).
-AI_WINDOW_MIN = float(env("PEAKCUT_AI_WINDOW_MIN") or 0)
+AI_WINDOW_MIN = float(env("CLIPIT_AI_WINDOW_MIN") or 0)
 # A model run by Ollama reads only this many tokens at once, and quietly drops the rest if the request is longer
-# (Ollama's own default is 4096). PeakCut sets it on every request, and raises it for one that would not fit.
-OLLAMA_NUM_CTX = int(env("PEAKCUT_OLLAMA_NUM_CTX") or 16384)
-OLLAMA_MAX_CTX = int(env("PEAKCUT_OLLAMA_MAX_CTX") or 32768)
+# (Ollama's own default is 4096). ClipIt sets it on every request, and raises it for one that would not fit.
+OLLAMA_NUM_CTX = int(env("CLIPIT_OLLAMA_NUM_CTX") or 16384)
+OLLAMA_MAX_CTX = int(env("CLIPIT_OLLAMA_MAX_CTX") or 32768)
 
 
 def ai_key() -> str:
-    return _secret("PEAKCUT_AI_KEY", "PEAKCUT_AI_KEY_FILE", r"\S{8,}")
+    return _secret("CLIPIT_AI_KEY", "CLIPIT_AI_KEY_FILE", r"\S{8,}")
 
 
 def ai_key_for(service: str) -> str:
     """The key of one fallback service (see AI_FALLBACKS)."""
     name = re.sub(r"\W", "_", service).upper()
-    return _secret(f"PEAKCUT_AI_KEY_{name}", f"PEAKCUT_AI_KEY_{name}_FILE", r"\S{8,}")
+    return _secret(f"CLIPIT_AI_KEY_{name}", f"CLIPIT_AI_KEY_{name}_FILE", r"\S{8,}")
 
 
 def ai_base_for(service: str) -> str:
     name = re.sub(r"\W", "_", service).upper()
-    return env(f"PEAKCUT_AI_BASE_URL_{name}", "").strip().rstrip("/")
+    return env(f"CLIPIT_AI_BASE_URL_{name}", "").strip().rstrip("/")
 
 
 def ai_ready() -> bool:
@@ -222,19 +234,19 @@ def ai_ready() -> bool:
 
 
 # ---------------------------------------------------------------- account emails (see mailer.py)
-SMTP_HOST = env("PEAKCUT_SMTP_HOST", "")
-SMTP_PORT = int(env("PEAKCUT_SMTP_PORT", "587"))
-SMTP_USER = env("PEAKCUT_SMTP_USER", "")
-MAIL_FROM = env("PEAKCUT_MAIL_FROM", "")
-CONTACT_EMAIL = env("PEAKCUT_CONTACT_EMAIL", "")
-LEGAL_NAME = env("PEAKCUT_LEGAL_NAME", "")            # the business that runs PeakCut, for the legal pages
-LEGAL_COUNTRY = env("PEAKCUT_LEGAL_COUNTRY", "")      # whose law applies, for the terms
+SMTP_HOST = env("CLIPIT_SMTP_HOST", "")
+SMTP_PORT = int(env("CLIPIT_SMTP_PORT", "587"))
+SMTP_USER = env("CLIPIT_SMTP_USER", "")
+MAIL_FROM = env("CLIPIT_MAIL_FROM", "")
+CONTACT_EMAIL = env("CLIPIT_CONTACT_EMAIL", "")
+LEGAL_NAME = env("CLIPIT_LEGAL_NAME", "")            # the business that runs ClipIt, for the legal pages
+LEGAL_COUNTRY = env("CLIPIT_LEGAL_COUNTRY", "")      # whose law applies, for the terms
 # Set to 1 on a public site with email set up: password sign-ups must then confirm their address before clipping.
-VERIFY_EMAIL = env("PEAKCUT_VERIFY_EMAIL", "0") == "1"
+VERIFY_EMAIL = env("CLIPIT_VERIFY_EMAIL", "0") == "1"
 
 
 def smtp_password() -> str:
-    return _secret("PEAKCUT_SMTP_PASSWORD", "PEAKCUT_SMTP_PASSWORD_FILE", r"\S{4,}")
+    return _secret("CLIPIT_SMTP_PASSWORD", "CLIPIT_SMTP_PASSWORD_FILE", r"\S{4,}")
 
 
 # ---------------------------------------------------------------- Google (sign in with Google, and connecting YouTube)

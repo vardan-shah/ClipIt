@@ -1,15 +1,15 @@
 """Talking to the AI service. You bring your own key, and choose the service and model in the dashboard
 (Settings, AI) or in .env. What is saved from the dashboard is kept in ai.json in the data folder and wins.
 
-    PEAKCUT_AI_PROVIDER   gemini | openai | xai | groq | openrouter | anthropic | ollama | custom
-    PEAKCUT_AI_MODELS     one or more model ids, comma separated, tried in this order
-    PEAKCUT_AI_KEY        your key (or PEAKCUT_AI_KEY_FILE, a file holding it)
-    PEAKCUT_AI_BASE_URL   only for "custom" (any service that speaks the OpenAI chat format), or to override
-    PEAKCUT_AI_FALLBACKS  more services to try, in order, when those are out of free requests or down:
-                          "groq:llama-3.3-70b-versatile,ollama:llama3.1:8b" (keys: PEAKCUT_AI_KEY_GROQ and so on)
+    CLIPIT_AI_PROVIDER   gemini | openai | xai | groq | openrouter | anthropic | ollama | custom
+    CLIPIT_AI_MODELS     one or more model ids, comma separated, tried in this order
+    CLIPIT_AI_KEY        your key (or CLIPIT_AI_KEY_FILE, a file holding it)
+    CLIPIT_AI_BASE_URL   only for "custom" (any service that speaks the OpenAI chat format), or to override
+    CLIPIT_AI_FALLBACKS  more services to try, in order, when those are out of free requests or down:
+                          "groq:llama-3.3-70b-versatile,ollama:llama3.1:8b" (keys: CLIPIT_AI_KEY_GROQ and so on)
 
 Every service is asked for the same thing: JSON that follows a small schema. Gemini takes the schema directly, and so
-does Ollama (through its own chat address, which also lets PeakCut say how much text the model may read at once).
+does Ollama (through its own chat address, which also lets ClipIt say how much text the model may read at once).
 The others are told the schema in the prompt and asked for a JSON object, which works with any chat model."""
 import json
 import os
@@ -117,7 +117,7 @@ def primary():
 
 
 def fallbacks() -> list:
-    """The services named in PEAKCUT_AI_FALLBACKS that are set up, as [(service, model)] in the order given.
+    """The services named in CLIPIT_AI_FALLBACKS that are set up, as [(service, model)] in the order given.
     An entry is "service:model", split at the first colon, so model ids that hold colons ("llama3.1:8b") work."""
     out, c = [], current()
     for item in config.AI_FALLBACKS:
@@ -263,7 +263,7 @@ def explain(e, spec=None, model=None) -> str:
     if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
         return f"{who} says the key has hit its limit or has no credit left. Check the account with {who}, or try again later."
     if "connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low:
-        return f"PeakCut couldn't reach {who}. Check the internet connection" + (" and that Ollama is running." if prov == "ollama" else ".")
+        return f"ClipIt couldn't reach {who}. Check the internet connection" + (" and that Ollama is running." if prov == "ollama" else ".")
     return ""
 
 
@@ -392,13 +392,13 @@ def _ctx_for(text: str) -> int:
         ctx = min(ctx * 2, config.OLLAMA_MAX_CTX)
     if need > ctx:
         raise AIError(f"HTTP 413 That much text does not fit in the {ctx} tokens the model may read. Set "
-                      "PEAKCUT_AI_WINDOW_MIN to a smaller number (such as 6), or raise PEAKCUT_OLLAMA_MAX_CTX.")
+                      "CLIPIT_AI_WINDOW_MIN to a smaller number (such as 6), or raise CLIPIT_OLLAMA_MAX_CTX.")
     return ctx
 
 
 def _ollama(spec, model, prompt, schema):
     """A model run by Ollama, through its own chat address rather than its OpenAI-style one: only this one lets
-    PeakCut say how much text the model may read (otherwise 4096 tokens) and hand over the JSON shape the answer
+    ClipIt say how much text the model may read (otherwise 4096 tokens) and hand over the JSON shape the answer
     must have, which makes small models far more dependable."""
     text = _wrapped(prompt, schema)
     shape = {"type": "object", "properties": {"items": _json_schema(schema)}, "required": ["items"]}

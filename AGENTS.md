@@ -1,4 +1,4 @@
-# Working on PeakCut
+# Working on ClipIt
 
 A short map for contributors and AI coding assistants.
 
@@ -9,7 +9,7 @@ A short map for contributors and AI coding assistants.
 - Tests: `python tests/run.py`. It starts a throwaway copy on a spare port with an empty data folder. Run it
   before and after any change to `studio/`. No keys needed.
 - To try a risky change by hand without touching real data:
-  `PEAKCUT_DATA=<temp folder> PEAKCUT_PORT=8766 python -m studio.server`.
+  `CLIPIT_DATA=<temp folder> CLIPIT_PORT=8766 python -m studio.server`.
 
 ## Where things are
 
@@ -33,7 +33,7 @@ A short map for contributors and AI coding assistants.
 ## Rules worth knowing
 
 - **Sign-in is off by default** (`config.ACCOUNTS`): every request then belongs to one built-in owner
-  (`auth.local_user()`). With `PEAKCUT_ACCOUNTS=1` it is a normal multi-user site. Both paths are tested.
+  (`auth.local_user()`). With `CLIPIT_ACCOUNTS=1` it is a normal multi-user site. Both paths are tested.
 - **Who is asking** always comes from the session (`ctx.uid()`), never from the request body. Background threads
   set it themselves with `ctx.as_user(...)`.
 - **Anything that changes what a user sees must call `ctx.bump()`**. The page polls `/api/sync`, which answers
@@ -44,7 +44,7 @@ A short map for contributors and AI coding assistants.
   `(parsed JSON, tokens in, tokens out)`, and list it in `call()`. Ollama is the example: it has its own function
   because it must be told how much to read.
 - **Every AI call goes through `brain.ask_ai`**, which tries the main service's models and then each fallback
-  (`PEAKCUT_AI_FALLBACKS`). Do not call `ai.call` from anywhere else.
+  (`CLIPIT_AI_FALLBACKS`). Do not call `ai.call` from anywhere else.
 - **Clips are rendered in a short temporary folder** and moved into place (`render.render_clip`): ffmpeg's caption
   step cannot open paths longer than 260 characters on Windows.
 - **Secrets** are read from the environment or from files named by `*_FILE` settings. Never write a key, a real

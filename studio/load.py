@@ -10,9 +10,9 @@ import time
 
 from . import config
 
-BUSY_CPU = float(config.env("PEAKCUT_BUSY_CPU", "82"))          # percent: above this, no extra videos are started
-MIN_FREE_RAM_GB = float(config.env("PEAKCUT_MIN_FREE_RAM_GB", "1.5"))
-MIN_FREE_DISK_GB = float(config.env("PEAKCUT_MIN_FREE_DISK_GB", "3"))
+BUSY_CPU = float(config.env("CLIPIT_BUSY_CPU", "82"))          # percent: above this, no extra videos are started
+MIN_FREE_RAM_GB = float(config.env("CLIPIT_MIN_FREE_RAM_GB", "1.5"))
+MIN_FREE_DISK_GB = float(config.env("CLIPIT_MIN_FREE_DISK_GB", "3"))
 
 _state = {"cpu": 0.0, "ram_free": 99.0, "disk_free": 99.0, "at": 0.0}
 _force = None            # tests only: pretend the server is busy (True) or free (False)

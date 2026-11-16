@@ -31,7 +31,7 @@ def main() -> int:
     cands = ai.candidates()
     if not cands:
         print("No AI is set up. Copy .env.free.example to .env and fill it in, or choose one in the dashboard (Settings, AI).")
-        print("PeakCut still works without one: clips are then picked by loudness only.")
+        print("ClipIt still works without one: clips are then picked by loudness only.")
         return 1
     ok = 0
     for spec, model in cands:

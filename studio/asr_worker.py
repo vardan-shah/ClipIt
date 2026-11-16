@@ -1,9 +1,9 @@
 """The speech-to-text machine: a tiny service that turns pieces of audio into words, meant for a machine with a
-graphics card. The main PeakCut server sends it pieces and gets the words back (see studio/transcribe.py).
+graphics card. The main ClipIt server sends it pieces and gets the words back (see studio/transcribe.py).
 
 Run with:  python -m studio.asr_worker
-Settings:  PEAKCUT_ASR_PROVIDER=cuda, PEAKCUT_ASR_TOKEN=<shared secret>, PEAKCUT_ASR_PORT (9000),
-           PEAKCUT_ASR_BATCH (pieces decoded together on the card, default 16)
+Settings:  CLIPIT_ASR_PROVIDER=cuda, CLIPIT_ASR_TOKEN=<shared secret>, CLIPIT_ASR_PORT (9000),
+           CLIPIT_ASR_BATCH (pieces decoded together on the card, default 16)
 
 It holds nothing: no accounts, no files, no database. It only answers on the private network, and only to callers
 that know the shared secret."""
@@ -18,9 +18,9 @@ from fastapi import FastAPI, HTTPException, Request
 
 from . import transcribe
 
-TOKEN = os.environ.get("PEAKCUT_ASR_TOKEN", "").strip()
-PORT = int(os.environ.get("PEAKCUT_ASR_PORT", "9000"))
-CARD_BATCH = int(os.environ.get("PEAKCUT_ASR_BATCH", "16"))
+TOKEN = os.environ.get("CLIPIT_ASR_TOKEN", "").strip()
+PORT = int(os.environ.get("CLIPIT_ASR_PORT", "9000"))
+CARD_BATCH = int(os.environ.get("CLIPIT_ASR_BATCH", "16"))
 MAX_BODY = 64 * 1024 * 1024             # about 33 minutes of sound in one request: far more than is ever sent
 MAX_PIECE = 16000 * 40                  # a piece is 12 to 24 seconds; 40 is the ceiling
 
@@ -76,10 +76,10 @@ async def decode(request: Request):
 
 def main():
     if not TOKEN:
-        raise SystemExit("Set PEAKCUT_ASR_TOKEN: the speech machine refuses to start without a shared secret.")
+        raise SystemExit("Set CLIPIT_ASR_TOKEN: the speech machine refuses to start without a shared secret.")
     transcribe._recognizer()            # load the model now, so the first request is not the slow one
     print(f"Speech machine ready on port {PORT} ({transcribe.PROVIDER})", flush=True)
-    uvicorn.run(app, host=os.environ.get("PEAKCUT_ASR_HOST", "0.0.0.0"), port=PORT, log_level="warning")
+    uvicorn.run(app, host=os.environ.get("CLIPIT_ASR_HOST", "0.0.0.0"), port=PORT, log_level="warning")
 
 
 if __name__ == "__main__":

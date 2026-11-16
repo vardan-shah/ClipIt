@@ -1,7 +1,7 @@
-"""The two programs PeakCut runs to work on video: ffmpeg and ffprobe.
+"""The two programs ClipIt runs to work on video: ffmpeg and ffprobe.
 
-They are not part of PeakCut and have to be on the computer. On Windows a missing one shows up as the bare
-"[WinError 2] The system cannot find the file specified", which tells nobody what to do. So PeakCut looks for them
+They are not part of ClipIt and have to be on the computer. On Windows a missing one shows up as the bare
+"[WinError 2] The system cannot find the file specified", which tells nobody what to do. So ClipIt looks for them
 itself (also in the places installers put them before Windows has told running programs), uses them from there,
 and when they really are missing says so in plain words, before any video is started."""
 import os
@@ -11,10 +11,10 @@ import time
 from pathlib import Path
 
 NEEDED = ("ffmpeg", "ffprobe")
-HELP = ("PeakCut needs ffmpeg to work on video, and it isn't installed on this computer yet. "
+HELP = ("ClipIt needs ffmpeg to work on video, and it isn't installed on this computer yet. "
         + ("Open a terminal and run:  winget install Gyan.FFmpeg" if sys.platform == "win32" else
            "Run:  brew install ffmpeg" if sys.platform == "darwin" else "Run:  sudo apt install ffmpeg")
-        + "  Then close PeakCut and start it again.")
+        + "  Then close ClipIt and start it again.")
 _seen = {"at": 0.0, "missing": list(NEEDED)}
 
 
@@ -23,8 +23,8 @@ def _places() -> list:
     root = Path(__file__).resolve().parent.parent
     out = [root / "ffmpeg" / "bin", root / "bin", root]
     env = os.environ.get
-    if env("PEAKCUT_FFMPEG_DIR"):                    # the folder that holds ffmpeg, if it lives somewhere unusual
-        out.insert(0, Path(env("PEAKCUT_FFMPEG_DIR")))
+    if env("CLIPIT_FFMPEG_DIR"):                    # the folder that holds ffmpeg, if it lives somewhere unusual
+        out.insert(0, Path(env("CLIPIT_FFMPEG_DIR")))
     if sys.platform == "win32":
         local = Path(env("LOCALAPPDATA") or "")
         if str(local) not in ("", "."):
@@ -46,7 +46,7 @@ def _places() -> list:
 
 
 def setup() -> list:
-    """Make ffmpeg and ffprobe reachable for everything PeakCut runs. Returns the ones that could not be found."""
+    """Make ffmpeg and ffprobe reachable for everything ClipIt runs. Returns the ones that could not be found."""
     exe = ".exe" if sys.platform == "win32" else ""
     missing = []
     for name in NEEDED:

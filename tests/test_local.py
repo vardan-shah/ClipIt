@@ -5,9 +5,9 @@ import os
 import sys
 import tempfile
 
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-local-")
-os.environ.update(DATABASE_URL="", PEAKCUT_ACCOUNTS="0", PEAKCUT_AI_PROVIDER="gemini", PEAKCUT_AI_MODELS="", PEAKCUT_AI_KEY="",
-                  PEAKCUT_AI_KEY_FILE="", PEAKCUT_AI_BASE_URL="", PEAKCUT_PUBLIC_URL="http://127.0.0.1:8765")
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-local-")
+os.environ.update(DATABASE_URL="", CLIPIT_ACCOUNTS="0", CLIPIT_AI_PROVIDER="gemini", CLIPIT_AI_MODELS="", CLIPIT_AI_KEY="",
+                  CLIPIT_AI_KEY_FILE="", CLIPIT_AI_BASE_URL="", CLIPIT_PUBLIC_URL="http://127.0.0.1:8765")
 sys.path.insert(0, ".")
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -121,5 +121,5 @@ check("a failed test says why, without the key", (r.status_code, "wrong-key-0000
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil  # noqa: E402
 db.engine.dispose()
-shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
+shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

@@ -1,7 +1,7 @@
 """Hindi and Urdu captions come out in Roman letters (Hinglish): the same words at the same moments, never
 translated. The AI is replaced by a stand-in, so nothing leaves this machine."""
 import os, sys, tempfile
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-roman-"); os.environ["DATABASE_URL"] = ""
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-roman-"); os.environ["DATABASE_URL"] = ""
 sys.path.insert(0, ".")
 from studio import brain, roman
 fails = []
@@ -86,5 +86,5 @@ answers["now"] = ["Hello", "there", "friend."]
 check("English stays English", text(brain.english_captions(ws("hello there friend"), "en", "")) == "Hello there friend.")
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
-import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
+import shutil; shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

@@ -1,7 +1,7 @@
 """Two things people hit: captions in another language drawn on top of each other, and one clip that hangs
 keeping the whole video "in progress". Runs against the code directly, with its own empty data folder."""
 import os, re, sys, tempfile, threading, time
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-stuck-"); os.environ["DATABASE_URL"] = ""; os.environ["PEAKCUT_CLIP_MINUTES"] = "0.03"
+os.environ["CLIPIT_DATA"] = tempfile.mkdtemp(prefix="pc-stuck-"); os.environ["DATABASE_URL"] = ""; os.environ["CLIPIT_CLIP_MINUTES"] = "0.03"
 sys.path.insert(0, ".")
 from concurrent.futures import ThreadPoolExecutor
 from studio import brain, jobs, render, roman
@@ -61,7 +61,7 @@ brain.fix_caption_words(ws("जो उसको लगा"), "", "hi")
 check("a Hindi video's captions get it", "Hinglish" in seen[-1], True)
 
 # ---- one clip that hangs
-job = {"id": "job-12345678", "dir": os.environ["PEAKCUT_DATA"], "creator": None, "user": "u_test01", "clips": []}
+job = {"id": "job-12345678", "dir": os.environ["CLIPIT_DATA"], "creator": None, "user": "u_test01", "clips": []}
 jobs.save = lambda j: None
 clips = [{"id": f"clip0{i}", "status": "rendering", "title": f"Clip {i}"} for i in range(1, 5)]
 began, release = {}, threading.Event()
@@ -114,5 +114,5 @@ ends = brain.sentence_ends(w)
 check("with no AI, a clip picked by loudness still ends on a sentence end", len(clips) == 1 and any(0 <= clips[0]["end"] - x <= 0.4 for x in ends))
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
-import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
+import shutil; shutil.rmtree(os.environ["CLIPIT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

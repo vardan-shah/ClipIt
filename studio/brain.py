@@ -177,7 +177,7 @@ def _how_it_failed(e) -> str:
 
 
 def ask_ai(prompt, schema=None, purpose="AI call"):
-    """Ask the AI. Every model of the main service is tried, then each fallback service (PEAKCUT_AI_FALLBACKS).
+    """Ask the AI. Every model of the main service is tried, then each fallback service (CLIPIT_AI_FALLBACKS).
     A busy service is passed over at once for the next one, so one free plan running out does not stop the work;
     only when every one is busy is there a short wait before going round again.
     Returns (the answer, the model that gave it, tokens used) and notes the tokens in the usage record."""
