@@ -10,7 +10,7 @@ import smtplib
 import ssl
 import threading
 from email.message import EmailMessage
-from email.utils import formataddr, make_msgid, parseaddr
+from email.utils import formataddr, getaddresses, make_msgid, parseaddr
 
 from . import config
 
@@ -70,6 +70,9 @@ def preview(title="Confirm your email", intro="Thanks for joining ClipIt. Confir
 
 def send(to: str, subject: str, title: str, intro: str, button: str, link: str, outro: str) -> bool:
     """Send in the background. Returns False when no mail service is set up (the link goes to the log)."""
+    if [a for _n, a in getaddresses([to])] != [to]:   # one address only: never mail someone the address list sneaks in
+        log.warning("Not sending %r: %r is not a single email address", subject, to)
+        return False
     if not ready():
         if config.HTTPS:      # a real site: a sign-in link must never sit in a log file
             log.warning("Email not set up, so nothing was sent: %s", subject)

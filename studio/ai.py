@@ -10,7 +10,11 @@
 
 Every service is asked for the same thing: JSON that follows a small schema. Gemini takes the schema directly, and so
 does Ollama (through its own chat address, which also lets ClipIt say how much text the model may read at once).
-The others are told the schema in the prompt and asked for a JSON object, which works with any chat model."""
+The others are told the schema in the prompt and asked for a JSON object, which works with any chat model.
+
+One picture can also be shown (`see`), which is how the webcam is looked for on a gaming stream. A model that
+cannot look at pictures answers with something else, and that is simply taken as "it did not look"."""
+import base64
 import json
 import os
 import re
@@ -262,7 +266,8 @@ def explain(e, spec=None, model=None) -> str:
         return f"{who} refused the key. Paste a working key under Settings, AI."
     if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
         return f"{who} says the key has hit its limit or has no credit left. Check the account with {who}, or try again later."
-    if "connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low:
+    if ("connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low or "nodename" in low
+            or "servname" in low or "nameresolutionerror" in low or "name resolution" in low):
         return f"ClipIt couldn't reach {who}. Check the internet connection" + (" and that Ollama is running." if prov == "ollama" else ".")
     return ""
 
@@ -313,36 +318,139 @@ def _wrapped(prompt, schema):
             "\"items\", whose value follows this JSON Schema:\n" + json.dumps(_json_schema(schema)))
 
 
+def _json_chunks(text: str):
+    """Every balanced {...} or [...] in the text, in the order they appear."""
+    out, depth, start, in_str, esc = [], 0, None, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0 and start is not None:
+                out.append(text[start:i + 1])
+                start = None
+            elif depth < 0:
+                depth = 0
+    return out
+
+
 def _parse(text):
-    """The JSON in an answer, even if the model wrapped it in a code fence or a sentence, or thought out loud first."""
+    """The JSON in an answer, even if the model wrapped it in a code fence or a sentence, or thought out loud first.
+
+    A model that is not careful sometimes puts a sentence in front of the JSON, or a second object after it, or
+    forgets a comma. The JSON is looked for inside the answer rather than demanded of it."""
     text = re.sub(r"(?is)<think>.*?</think>", "", text or "").strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    out = None
     try:
         out = json.loads(text)
     except ValueError:
-        m = re.search(r"[\[{].*[\]}]", text, re.S)
-        if not m:
-            raise AIError("The AI did not answer with JSON.")
-        out = json.loads(m.group(0))
+        for chunk in _json_chunks(text):
+            try:
+                out = json.loads(chunk)
+                break
+            except ValueError:
+                continue
+        if out is None:
+            m = re.search(r"[\[{].*[\]}]", text, re.S)
+            if not m:
+                raise AIError("The AI did not answer with JSON.")
+            try:
+                out = json.loads(m.group(0))
+            except ValueError:
+                raise AIError("The AI did not answer with JSON.")
     if isinstance(out, dict) and "items" in out:
         out = out["items"]
     return out
 
 
 # ---------------------------------------------------------------- one call
-def call(model: str, prompt: str, schema: dict, spec=None):
+def _main_spec():
+    c = current()
+    return _spec(c["provider"], c["base_url"], c["key"])
+
+
+def call(model: str, prompt: str, schema: dict, spec=None, timeout: float | None = None):
     """Ask one model. `spec` says which service (the main one when left out). Returns (the parsed JSON answer,
-    tokens sent, tokens written back)."""
-    if spec is None:
-        c = current()
-        spec = _spec(c["provider"], c["base_url"], c["key"])
-    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic, "ollama": _ollama}[spec["how"]](spec, model, prompt, schema)
+    tokens sent, tokens written back).
+
+    `timeout` is how long one answer may take. A live stream passes a short one, because a slow answer must not
+    stop the recording."""
+    spec = spec or _main_spec()
+    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic, "ollama": _ollama}[spec["how"]](spec, model, prompt, schema, timeout)
 
 
-def _gemini(spec, model, prompt, schema):
+def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, int, int]:
+    """Ask one model about one picture: (the answer as text, tokens in, tokens out).
+
+    Nothing is broken by a service that cannot look at pictures, or a model that is only text: the answer comes back
+    empty, or says something the caller does not understand, and the caller carries on without it. The picture is a
+    JPEG, passed as base64 inside the ordinary message. The main service and its first model are asked."""
+    if not ready() or not image or not models():
+        return "", 0, 0
+    spec, model = _main_spec(), models()[0]
+    b64 = base64.b64encode(image).decode()
+    if spec["how"] == "gemini":
+        body = {"contents": [{"role": "user", "parts": [
+            {"text": prompt},
+            {"inline_data": {"mimeType": "image/jpeg", "data": b64}}]}]}
+        r = httpx.post(f"{spec['base']}/{model}:generateContent", json=body,
+                       headers={"x-goog-api-key": spec["key"]}, timeout=timeout or 120)
+        if r.status_code != 200:
+            _fail(r, spec)
+        data = r.json()
+        text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+        u = data.get("usageMetadata", {})
+        sent = int(u.get("promptTokenCount") or 0)
+        return text, sent, max(0, int(u.get("totalTokenCount") or 0) - sent)
+    if spec["how"] == "anthropic":
+        body = {"model": model, "max_tokens": 300, "messages": [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+            {"type": "text", "text": prompt}]}]}
+        r = httpx.post(f"{spec['base']}/messages", json=body, timeout=timeout or 120,
+                       headers={"x-api-key": spec["key"], "anthropic-version": "2023-06-01"})
+        if r.status_code != 200:
+            _fail(r, spec)
+        data = r.json()
+        text = "".join(p.get("text", "") for p in data.get("content") or [] if p.get("type") == "text")
+        u = data.get("usage") or {}
+        return text, int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
+    headers = {"Authorization": f"Bearer {spec['key']}"} if spec["key"] else {}
+    if spec["how"] == "ollama":                  # its own chat address takes the picture next to the words
+        body = {"model": model, "stream": False, "messages": [{"role": "user", "content": prompt, "images": [b64]}]}
+        r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=body, headers=headers, timeout=timeout or 300)
+        if r.status_code != 200:
+            _fail(r, spec)
+        data = r.json()
+        return (data.get("message") or {}).get("content") or "", int(data.get("prompt_eval_count") or 0), int(data.get("eval_count") or 0)
+    body = {"model": model, "stream": False, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}}]}]}
+    r = httpx.post(f"{spec['base']}/chat/completions", json=body, headers=headers, timeout=timeout or 120)
+    if r.status_code != 200:
+        _fail(r, spec)
+    data = _openai_body(r)
+    text = (data["choices"][0]["message"].get("content") or "")
+    u = data.get("usage") or {}
+    return text, int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+
+
+def _gemini(spec, model, prompt, schema, timeout=None):
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}}
-    r = httpx.post(f"{spec['base']}/{model}:generateContent", json=body, headers={"x-goog-api-key": spec["key"]}, timeout=120)
+    r = httpx.post(f"{spec['base']}/{model}:generateContent", json=body, headers={"x-goog-api-key": spec["key"]}, timeout=timeout or 120)
     if r.status_code != 200:
         _fail(r, spec)
     data = r.json()
@@ -352,26 +460,76 @@ def _gemini(spec, model, prompt, schema):
     return json.loads(text), sent, max(0, int(u.get("totalTokenCount") or 0) - sent)   # the answer, and any thinking billed with it
 
 
-def _openai(spec, model, prompt, schema):
+def _openai_body(r):
+    """The answer, whether the service sent plain JSON or an event stream.
+
+    Some OpenAI-compatible servers answer with a stream of events unless the request says otherwise, so the answer
+    is read from whichever shape arrived. A model that answers with a tool call instead of a message leaves the JSON
+    in the call's arguments, so that is used too."""
+    try:
+        data = r.json()
+    except ValueError:
+        data = _from_events(r.text)
+    for ch in data.get("choices") or []:
+        msg = ch.get("message") or {}
+        if (msg.get("content") or "").strip():
+            continue
+        for tool in msg.get("tool_calls") or []:
+            args = (tool.get("function") or {}).get("arguments")
+            if args:
+                msg["content"] = args
+                break
+    return data
+
+
+def _from_events(text: str) -> dict:
+    """Read an answer out of a server-sent event stream."""
+    parts, usage, calls = [], {}, {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        chunk = line[5:].strip()
+        if not chunk or chunk == "[DONE]":
+            continue
+        try:
+            d = json.loads(chunk)
+        except ValueError:
+            continue
+        usage = d.get("usage") or usage
+        for ch in d.get("choices") or []:
+            for piece in ((ch.get("message") or {}), (ch.get("delta") or {})):
+                if piece.get("content"):
+                    parts.append(piece["content"])
+                for tool in piece.get("tool_calls") or []:
+                    i = tool.get("index", 0)
+                    calls[i] = calls.get(i, "") + ((tool.get("function") or {}).get("arguments") or "")
+    message = {"content": "".join(parts)}
+    if not message["content"] and calls:
+        message["content"] = "".join(calls.values())
+    return {"choices": [{"message": message}], "usage": usage}
+
+
+def _openai(spec, model, prompt, schema, timeout=None):
     headers = {"Authorization": f"Bearer {spec['key']}"} if spec["key"] else {}
-    body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
+    body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}], "stream": False}
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
     extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
     r = None
     for extra in extras:
-        r = httpx.post(f"{spec['base']}/chat/completions", json={**body, **extra}, headers=headers, timeout=180)
+        r = httpx.post(f"{spec['base']}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
         if r.status_code not in (400, 422):
             break
     if r.status_code != 200:
         _fail(r, spec)
-    data = r.json()
+    data = _openai_body(r)
     u = data.get("usage") or {}
     return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _anthropic(spec, model, prompt, schema):
+def _anthropic(spec, model, prompt, schema, timeout=None):
     body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
-    r = httpx.post(f"{spec['base']}/messages", json=body, timeout=180,
+    r = httpx.post(f"{spec['base']}/messages", json=body, timeout=timeout or 180,
                    headers={"x-api-key": spec["key"], "anthropic-version": "2023-06-01"})
     if r.status_code != 200:
         _fail(r, spec)
@@ -396,7 +554,7 @@ def _ctx_for(text: str) -> int:
     return ctx
 
 
-def _ollama(spec, model, prompt, schema):
+def _ollama(spec, model, prompt, schema, timeout=None):
     """A model run by Ollama, through its own chat address rather than its OpenAI-style one: only this one lets
     ClipIt say how much text the model may read (otherwise 4096 tokens) and hand over the JSON shape the answer
     must have, which makes small models far more dependable."""
@@ -409,7 +567,7 @@ def _ollama(spec, model, prompt, schema):
         body = {"model": model, "stream": False, "messages": [{"role": "user", "content": text}], "options": options}
         if fmt:
             body["format"] = fmt
-        r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=body, headers=headers, timeout=900)
+        r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=body, headers=headers, timeout=timeout or 900)
         if r.status_code not in (400, 422):
             break
     if r.status_code != 200:

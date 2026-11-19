@@ -14,9 +14,10 @@ def _root() -> Path:
 
 _lock = threading.RLock()
 
-DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "min_len": 15, "max_len": 60,
+DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "captions": True, "min_len": 15, "max_len": 60,
             "max_clips": 6, "min_score": 80, "auto_watch": False, "buffer_min": 20, "live_per_hour": 4, "ai_every_min": 3, "ai_only_on_spike": True, "auto_jump_pct": 60,
             "plan": "free", "decide_mode": "both", "must_clip_min": 0, "min_gap_min": 2,
+            "game": "",
             "trigger_words": "clip that, clip it",
             "autopost": False, "accounts": [], "post_min_score": 75, "post_gap_min": 45, "daily_cap": 6,
             "privacy": "public", "post_footer": "", "rate_per_1k": 0.0, "channels": {}}
@@ -53,6 +54,12 @@ def root(cid) -> Path:
 def _clean(data: dict) -> dict:
     out = {}
     for k in DEFAULTS:
+        if k == "captions":
+            if k in data:
+                if not isinstance(data[k], bool):
+                    raise ValueError("Captions must be on or off.")
+                out[k] = data[k]
+            continue
         if k not in data or data[k] is None:
             continue
         v = data[k]
@@ -181,14 +188,39 @@ def set_profiles(cid, profiles: dict, extra: dict = None):
 def log(cid, msg: str):
     if not cid or ctx.uid_or_none() is None or not root(cid).exists():
         return
-    with _lock, (root(cid) / "log.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": time.time(), "msg": msg}) + "\n")
+    path = root(cid) / "log.jsonl"
+    with _lock:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": time.time(), "msg": msg}) + "\n")
+        try:
+            if path.stat().st_size > LOG_MAX_BYTES:         # a stream that runs for weeks must not grow this for ever
+                keep = path.read_text(encoding="utf-8", errors="ignore").splitlines()[-LOG_KEEP_LINES:]
+                path.write_text("\n".join(keep) + "\n", encoding="utf-8")
+        except OSError:
+            pass
     ctx.bump()
 
 
+LOG_MAX_BYTES, LOG_KEEP_LINES, LOG_TAIL_BYTES = 1_000_000, 500, 64 * 1024
+
+
 def read_log(cid, n=40) -> list:
+    """The newest n lines, newest first. Only the end of the file is read: the page asks for this all the time."""
     f = root(cid) / "log.jsonl"
-    if not f.exists():
+    try:
+        size = f.stat().st_size
+        with f.open("rb") as h:
+            h.seek(max(0, size - LOG_TAIL_BYTES))
+            raw = h.read()
+    except OSError:
         return []
-    lines = f.read_text(encoding="utf-8").splitlines()[-n:]
-    return [json.loads(x) for x in reversed(lines) if x.strip()]
+    lines = raw.decode("utf-8", errors="ignore").splitlines()
+    if size > LOG_TAIL_BYTES:
+        lines = lines[1:]                                   # the first one starts in the middle of a line
+    out = []
+    for x in reversed(lines[-n:]):
+        try:
+            out.append(json.loads(x))
+        except ValueError:
+            pass
+    return out

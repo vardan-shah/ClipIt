@@ -55,13 +55,20 @@ def main() -> int:
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
                 ("Hindi speech: choosing the language, Whisper, word timing", ["tests/test_hindi.py"]),
+                ("turning captions off and back on", ["tests/test_captions.py"]),
                 ("connecting YouTube and Instagram", ["tests/test_connect.py"]),
                 ("the ClipIt name, and settings from before the rename", ["tests/test_naming.py"]),
                 ("the new-version notice", ["tests/test_updates.py"]),
                 ("no limits by default", ["tests/test_limits.py"]),
                 ("captions never overlap, stuck clips, sentence endings", ["tests/test_stuck.py"]),
+                ("ad breaks and frozen screens", ["tests/test_static.py"]),
+                ("answers that are not quite right", ["tests/test_answer.py"]),
+                ("knowing which game a stream is", ["tests/test_games.py"]),
+                ("finding the facecam in a gaming stream", ["tests/test_facecam.py"]),
                 ("fresh installs: ffmpeg, the speech model, AI errors", ["tests/test_tools.py"]),
-                ("the storage folder: full drive, open, move", ["tests/test_storage.py"])]
+                ("the storage folder: full drive, open, move", ["tests/test_storage.py"]),
+                ("security: visitor address, email addresses, Google sign-in, prompts", ["tests/test_hardening.py"]),
+                ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"])]
         for name, args in runs:
             print(f"\n=== {name} ===", flush=True)
             r = subprocess.run([sys.executable, *args], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")

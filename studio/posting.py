@@ -29,6 +29,16 @@ def _save():
         tmp.replace(_FILE)
 
 
+def forget(uid: str):
+    """Drop everything queued or recorded for a deleted account, so nothing is posted or retried for it any more."""
+    with _lock:
+        for p in _posts:
+            if p.get("user") == uid:
+                p["status"] = "deleted"          # the posting loop may be holding this one already: it then skips it
+        _posts[:] = [p for p in _posts if p.get("user") != uid]
+        _save()
+
+
 def _day(t):
     return time.strftime("%Y-%m-%d", time.localtime(t))
 

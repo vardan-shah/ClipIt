@@ -146,6 +146,16 @@ LANGUAGE = env("CLIPIT_LANGUAGE", "auto").strip().lower() or "auto"
 # (lighter and quicker, but it makes more mistakes in Hindi), "medium" or "large-v3".
 WHISPER_MODEL = env("CLIPIT_WHISPER_MODEL", "turbo").strip().lower() or "turbo"
 DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'clipit.db').as_posix()}"
+# Commercials and "be right back" screens are stitched into streams. A clip taken from one is worthless, so those
+# seconds can be found and left out. It is off by default: it reads the whole video once, which is not free, and
+# a video that is meant to be still must not lose its clips. CLIPIT_SKIP_STATIC=1 turns it on.
+# The threshold is the mean luma difference between frames: under it, nothing moved.
+SKIP_STATIC = env("CLIPIT_SKIP_STATIC", "0") == "1"
+STATIC_THRESHOLD = float(env("CLIPIT_STATIC_THRESHOLD", "0.4"))
+STATIC_MIN_SECONDS = float(env("CLIPIT_STATIC_MIN_SECONDS", "6"))
+# How long one AI answer may take on a live stream. It is short on purpose: while the AI thinks, the
+# recording carries on, so a slow answer costs a check, not the stream.
+LIVE_AI_TIMEOUT = float(env("CLIPIT_LIVE_AI_TIMEOUT", "45"))
 
 for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR):
     d.mkdir(parents=True, exist_ok=True)

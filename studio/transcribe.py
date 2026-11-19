@@ -50,8 +50,83 @@ def _model_files(d) -> dict:
     raise FileNotFoundError(f"No speech model files in {d}")
 
 
+_lib = {"mod": None}
+_lib_lock = threading.Lock()
+
+
+def _sherpa():
+    """The speech library, loaded once. Several copies of the model start on parallel threads, so loading is done
+    under a lock: two threads loading it at the same moment would trip over each other."""
+    with _lib_lock:
+        if _lib["mod"] is None:
+            _lib["mod"] = _load_sherpa()
+        return _lib["mod"]
+
+
+def _load_sherpa():
+    """On Windows a file whose full path is over 260 characters cannot be loaded, which happens when ClipIt sits in a
+    deep folder ("DLL load failed ... The filename or extension is too long"). Then the library is loaded through
+    the folder's short name (C:\\Users\\...\\SITE-P~1), which points at the same files, or else from a copy of it
+    in a short folder (AppData\\Local\\ClipIt\\lib), made once."""
+    import sys
+    try:
+        import sherpa_onnx
+        return sherpa_onnx
+    except ImportError as e:
+        if os.name != "nt" or "too long" not in str(e).lower():
+            raise
+        first = e
+    import ctypes
+    import importlib
+    import importlib.util
+    import shutil
+    from pathlib import Path
+
+    def forget():
+        for k in [m for m in sys.modules if m == "sherpa_onnx" or m.startswith("sherpa_onnx.")]:
+            del sys.modules[k]
+        importlib.invalidate_caches()
+
+    def load_from(folder: str):
+        forget()
+        sys.path.insert(0, folder)          # stays first: later imports inside the library look here too
+        try:
+            return importlib.import_module("sherpa_onnx")
+        except ImportError:
+            sys.path.remove(folder)
+            forget()
+            return None
+
+    forget()
+    spec = importlib.util.find_spec("sherpa_onnx")
+    pkg = Path(spec.origin).parent if spec and spec.origin else None
+    if pkg is None:
+        raise first
+    buf = ctypes.create_unicode_buffer(1024)
+    if ctypes.windll.kernel32.GetShortPathNameW(str(pkg.parent), buf, 1024) and len(buf.value) < len(str(pkg.parent)):
+        mod = load_from(buf.value)
+        if mod:
+            return mod
+    # A copy of the library in a short folder. Same version check each start, so an update replaces it.
+    base = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "ClipIt" / "lib"
+    stamp = base / "sherpa_onnx.from"
+    want = f"{pkg}|{(pkg / '__init__.py').stat().st_mtime_ns}"
+    try:
+        if not (base / "sherpa_onnx").is_dir() or not stamp.is_file() or stamp.read_text(encoding="utf-8") != want:
+            shutil.rmtree(base / "sherpa_onnx", ignore_errors=True)
+            shutil.copytree(pkg, base / "sherpa_onnx")
+            stamp.write_text(want, encoding="utf-8")
+        mod = load_from(str(base))
+        if mod:
+            return mod
+    except OSError:
+        pass
+    raise RuntimeError("ClipIt is in a folder too deep for Windows to load the speech model from. Move the ClipIt "
+                       "folder somewhere short, like C:\\clipit, and start it again.") from first
+
+
 def _new():
-    import sherpa_onnx
+    sherpa_onnx = _sherpa()
     from . import fetch_model
     fetch_model.ensure()             # downloaded here, once, if it was never fetched
     d = config.ASR_MODEL_DIR

@@ -96,7 +96,7 @@ def forget() -> None:
 
 
 def _recognizer(lang: str):
-    import sherpa_onnx
+    sherpa_onnx = _speech._sherpa()          # the speech library, loaded once (and loadable from a deep Windows folder)
     with _lock:
         name = config.WHISPER_MODEL
         rec = _recs.get((name, lang))
@@ -111,7 +111,7 @@ def _recognizer(lang: str):
 
 
 def _identifier():
-    import sherpa_onnx
+    sherpa_onnx = _speech._sherpa()          # the speech library, loaded once (and loadable from a deep Windows folder)
     global _lid
     with _lock:
         if _lid is None:

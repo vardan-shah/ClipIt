@@ -28,12 +28,29 @@ creator's live stream and clip the highlights while the stream is still running.
 You need Python 3.10 or newer and `ffmpeg`. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
 On Linux: `sudo apt install ffmpeg`. ClipIt finds it by itself and tells you in the dashboard if it is missing.
 
+Put ClipIt in a short folder that stays put: `C:\clipit` on Windows, `~/clipit` on a Mac or Linux. Not inside a
+temporary folder or an AI assistant's workspace: those get cleaned up, and on Windows a folder that deep stops the
+speech model from loading (Windows can't open files whose full path is over 260 characters). If an AI assistant
+installs it for you, it should ask you where to put it first ([AGENTS.md](AGENTS.md) tells it to).
+
+On Windows:
+
 ```bash
-git clone <this repository> clipit
+git clone <this repository> C:\clipit
 ```
 
 ```bash
-cd clipit
+cd C:\clipit
+```
+
+On a Mac or Linux:
+
+```bash
+git clone <this repository> ~/clipit
+```
+
+```bash
+cd ~/clipit
 ```
 
 ```bash

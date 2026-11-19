@@ -14,7 +14,8 @@ import sqlalchemy as sa
 from . import config, db
 
 COOKIE = "clipit_session"
-EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,180}\.[A-Za-z]{2,24}$")
+# No commas, semicolons, quotes, brackets or backslashes: in an email header those turn one address into several.
+EMAIL_RE = re.compile(r"^[^@\s,;:<>\"()\[\]\\]{1,64}@[^@\s,;:<>\"()\[\]\\]{1,180}\.[A-Za-z]{2,24}$")
 _SCRYPT = {"n": 2 ** 15, "r": 8, "p": 1}
 _states: dict = {}            # one-time values for the Google redirect: state -> (created, next path)
 _attempts = collections.defaultdict(collections.deque)
@@ -377,7 +378,13 @@ def google_finish(code: str, state: str):
     email = info["email"].lower()
     pic = info.get("picture") or ""
     with db.engine.begin() as c:
-        u = c.execute(sa.select(db.users).where(sa.or_(db.users.c.google_sub == info["sub"], db.users.c.email == email))).first()
+        # The Google identity (sub) is what proves who someone is. The email is only a way to find an older
+        # password account, and only when that account has not been linked to a different Google identity already.
+        u = c.execute(sa.select(db.users).where(db.users.c.google_sub == info["sub"])).first()
+        if not u:
+            u = c.execute(sa.select(db.users).where(db.users.c.email == email)).first()
+            if u and u.google_sub and u.google_sub != info["sub"]:
+                raise AuthError("This email address is already linked to a different Google account.")
         if u and not u.google_sub:
             # First Google sign-in for an email that already has a password account. That password was set without
             # proving ownership of the email, so drop it (and any open sessions): only the Google owner keeps access.

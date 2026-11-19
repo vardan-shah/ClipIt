@@ -263,13 +263,16 @@ def download(url: str, job_dir: Path, height=720) -> Path:
     return _biggest(job_dir, "source")
 
 
-def download_section(url: str, out_dir: Path, stem: str, start: float, end: float, height=720) -> Path:
-    """Just one stretch of the video. The cut lands on a keyframe, so find_offset() pins the true start."""
+def download_section(url: str, out_dir: Path, stem: str, start: float, end: float, height=720, exact=False) -> Path:
+    """Just one stretch of the video. The cut lands on a keyframe, so find_offset() pins the true start; with
+    exact=True the cut is made at exactly `start` instead (slower), for when there is nothing to match against."""
     from yt_dlp.utils import download_range_func
     out_dir.mkdir(parents=True, exist_ok=True)
-    with _youtube_guard(url), _ydl({"format": _video_format(height), "merge_output_format": "mp4",
-               "outtmpl": str(out_dir / (stem + ".%(ext)s")),
-               "download_ranges": download_range_func(None, [(max(0.0, start), end)])}) as ydl:
+    opts = {"format": _video_format(height), "merge_output_format": "mp4", "outtmpl": str(out_dir / (stem + ".%(ext)s")),
+            "download_ranges": download_range_func(None, [(max(0.0, start), end)])}
+    if exact:
+        opts["force_keyframes_at_cuts"] = True
+    with _youtube_guard(url), _ydl(opts) as ydl:
         ydl.download([url])
     return _biggest(out_dir, stem)
 

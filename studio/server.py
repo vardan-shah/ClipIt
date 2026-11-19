@@ -254,9 +254,12 @@ def _ip(request: Request) -> str:
     """The visitor's address, used for rate limits. The connection's own address, or the one the proxy in front
     reports (CLIPIT_TRUST_PROXY). If that connection comes from the CDN, the CDN's header names the real visitor
     (CLIPIT_CLIENT_IP_HEADER). The header is believed only when the CDN really sent the request, so nobody can
-    pick their own address by sending it themselves."""
+    pick their own address by sending it themselves.
+
+    The proxy adds the address it saw at the END of X-Forwarded-For. Everything before that was written by the
+    visitor, so only the last entry is believed."""
     fwd = request.headers.get("x-forwarded-for", "")
-    peer = (fwd.split(",")[0].strip() if fwd and config.env("CLIPIT_TRUST_PROXY") else "") or (request.client.host if request.client else "")
+    peer = (fwd.split(",")[-1].strip() if fwd and config.env("CLIPIT_TRUST_PROXY") else "") or (request.client.host if request.client else "")
     named = config.env("CLIPIT_CLIENT_IP_HEADER")
     if named and request.headers.get(named) and _from_cdn(peer):
         return request.headers[named].split(",")[0].strip()[:64]
@@ -1283,7 +1286,9 @@ def ai_models(request: Request, body: dict = Body(default={})):
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, "The service did not give its list of models. Check the key, or type the model yourself. " + _ai_error(e)[:160])
+        reason = ai.explain(e)
+        raise HTTPException(502, f"The service did not give its list of models. {reason}" if reason else
+                            "The service did not give its list of models. Check the key, or type the model yourself. " + _ai_error(e)[:160])
 
 
 @app.post("/api/ai/test")

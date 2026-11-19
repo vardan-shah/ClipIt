@@ -56,18 +56,25 @@ def _ram_free_gb() -> float:
 def _watch():
     try:
         last = _cpu_times()
-    except Exception:  # noqa: BLE001 - a system we cannot measure: behave as if there is always room
-        return
+    except Exception:  # noqa: BLE001 - a system whose processor we cannot measure (a Mac): leave that out, keep the rest
+        last = None
     while True:
         time.sleep(1)
+        if last is not None:
+            try:
+                now = _cpu_times()
+                used, total = now[0] - last[0], now[1] - last[1]
+                last = now
+                if total > 0:
+                    # smoothed over a few seconds, so one short spike neither holds people up nor lets too much in
+                    _state["cpu"] = 0.55 * _state["cpu"] + 0.45 * (100.0 * used / total)
+            except Exception:  # noqa: BLE001
+                pass
         try:
-            now = _cpu_times()
-            used, total = now[0] - last[0], now[1] - last[1]
-            last = now
-            if total > 0:
-                # smoothed over a few seconds, so one short spike neither holds people up nor lets too much in
-                _state["cpu"] = 0.55 * _state["cpu"] + 0.45 * (100.0 * used / total)
             _state["ram_free"] = _ram_free_gb()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             if time.time() - _state["at"] > 15:
                 _state["disk_free"] = shutil.disk_usage(config.DATA_DIR).free / 1e9
                 _state["at"] = time.time()
