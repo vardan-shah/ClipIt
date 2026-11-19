@@ -11,7 +11,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import brain, config, creators, ctx, load, media, render, roman, safe, transcribe, usage
+from . import brain, config, creators, ctx, fetch_model, load, media, render, roman, safe, transcribe, usage, whisper
 
 class _FairQueue:
     """Whose video is next. Each person has their own line and the lines take turns, so someone who adds ten
@@ -487,6 +487,25 @@ def _covers(words: list, start: float, end: float) -> bool:
     return len(inside) >= 25 * minutes and inside[-1]["s"] >= start + 0.85 * (end - start)
 
 
+def _speech_language(job, audio, yt, notes) -> str:
+    """The language spoken in this video, as a Whisper code: "en" is done by the quick English model, anything else
+    (Hindi, Hinglish...) by Whisper. Worked out once and remembered in the job, so a video picked up again after a
+    restart does not listen twice. When YouTube's own words are used there is no speech-to-text to do, so the big
+    Hindi model is not fetched for it; otherwise it is fetched here, once, the first time a Hindi video comes."""
+    known = whisper.normalize_lang(job.get("speech_lang"))
+    if known:
+        return known
+    if yt:
+        lang = whisper.normalize_lang(yt[1]) or "en"
+    else:
+        lang = transcribe.choose_language(audio, "", notes.append)
+        if lang != "en" and not whisper.ready():
+            _set(job, stage=f"Getting the Hindi speech model (one time, about {fetch_model.WHISPER_MB.get(config.WHISPER_MODEL, 600)} MB)")
+            whisper.ensure()
+    _set(job, speech_lang=lang)
+    return lang
+
+
 def _run_job(job):
     import math
     from concurrent.futures import ThreadPoolExecutor
@@ -581,7 +600,7 @@ def _run_job(job):
             # run on just this clip: full punctuation, nothing blanked out, timings to the word.
             a0, b0 = max(lo, int((clip["start"] - 1.5) * 16000)), min(hi, int((clip["end"] + 1.5) * 16000))
             try:
-                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2)) for w in transcribe.transcribe(audio[a0:b0])]
+                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2)) for w in transcribe.transcribe(audio[a0:b0], lang="en")]
             except Exception:  # noqa: BLE001 - the clip is still made, with YouTube's words
                 tw = []
             if len(tw) >= 3:
@@ -607,6 +626,9 @@ def _run_job(job):
             yt = None
         job["transcript_from"] = "youtube" if yt else "own"
         job["lang"] = yt[1] if yt else ""          # the language spoken, when YouTube says (decides the captions)
+    speech = _speech_language(job, audio[lo:hi], yt, notes)
+    if speech != "en" and not job.get("lang"):
+        job["lang"] = speech                       # our own Hindi transcript: the captions are written as Hindi
     if resuming:
         try:
             words = json.loads((d / "words.json").read_text(encoding="utf-8"))
@@ -636,7 +658,7 @@ def _run_job(job):
                 if now_on[0] == i and p - last[0] > 0.05:      # only the part being shown moves the bar
                     last[0] = p
                     _set(job, progress=max(job["progress"], 0.14 + 0.78 * ((a_ - lo) + p * (b_ - a_)) / max(1, hi - lo)))
-            heard[i] = ahead.submit(ctx.bind(transcribe.transcribe), audio[a_:b_], tp)
+            heard[i] = ahead.submit(ctx.bind(transcribe.transcribe), audio[a_:b_], tp, lang=speech)
 
     for bi, (a, b) in enumerate(blocks):
         if bi < done_blocks:

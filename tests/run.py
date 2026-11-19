@@ -54,6 +54,7 @@ def main() -> int:
                 ("free setups: Ollama, fallbacks, text without an AI", ["tests/test_free.py"]),
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
+                ("Hindi speech: choosing the language, Whisper, word timing", ["tests/test_hindi.py"]),
                 ("connecting YouTube and Instagram", ["tests/test_connect.py"]),
                 ("the ClipIt name, and settings from before the rename", ["tests/test_naming.py"]),
                 ("the new-version notice", ["tests/test_updates.py"]),

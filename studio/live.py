@@ -7,11 +7,12 @@ import ssl
 import subprocess
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 import numpy as np
 
-from . import alerts, auth, brain, config, creators, ctx, jobs, load, media, transcribe, usage
+from . import alerts, auth, brain, config, creators, ctx, jobs, load, media, transcribe, usage, whisper
 
 SESSIONS: dict = {}
 SEG_SEC = 6           # length of each buffer piece
@@ -135,6 +136,9 @@ class Session:
         self.last_spike = -999.0      # when the last jump was sent to the AI (stream seconds)
         self.base = {}                # running averages the jumps are measured against, shown on the card
         self.spikes = 0
+        known = whisper.normalize_lang(job.get("speech_lang"))
+        self.lang = known             # the language spoken in the stream ("en", "hi"...), once it is known
+        self.lang_votes = [known] * self.LANG_VOTES if known else []   # a recording picked up after a restart keeps its language
 
     # ---------------------------------------------------------------- recording
     def start(self):
@@ -271,6 +275,32 @@ class Session:
         return rate > max(3 * avg, 1.0)
 
     # ---------------------------------------------------------------- analysis
+    LANG_VOTES = 3        # stretches with someone talking that are listened to, to tell which language a stream is in
+
+    def _language(self, audio) -> str:
+        """The language spoken in this stream, as a Whisper code. CLIPIT_LANGUAGE decides when it is set. Otherwise the
+        first three stretches in which someone is talking are listened to, and the majority is kept for the rest of
+        the stream (silence or music at the start must not decide it); until the third, the leading guess is used.
+        English is done by the quick English model, anything else (Hindi, Hinglish...) by Whisper."""
+        want = whisper.setting()
+        if want != "auto":
+            lang = want
+        elif len(self.lang_votes) < self.LANG_VOTES and whisper.has_speech(audio):
+            self.lang_votes.append(transcribe.choose_language(audio))
+            top, n = collections.Counter(self.lang_votes).most_common(1)[0]
+            lang = top if n >= 2 or len(self.lang_votes) < self.LANG_VOTES else "en"
+        else:
+            lang = self.lang or "en"
+        if lang != self.lang:
+            self.lang = lang
+            if lang == "en":
+                self.job.pop("lang", None)
+            else:
+                self.job["lang"] = lang                 # decides how the captions are written (Hindi in Roman letters)
+        if want != "auto" or len(self.lang_votes) >= self.LANG_VOTES:
+            self.job["speech_lang"] = lang              # settled: a recording picked up again keeps it
+        return lang
+
     def _transcribe_step(self):
         with self.lock:
             n = len(self.pending) // 2
@@ -283,7 +313,12 @@ class Session:
         if not hurry or n > SR * 24:
             # cut at the quietest moment between 4 and 6.5 s, so no word is split; the rest waits for the next pass
             _, cut = next(transcribe._chunks(audio, 4.0, 6.5))
-        words = transcribe.transcribe(audio[:cut])
+        lang = self._language(audio[:cut])
+        if lang != "en" and not whisper.ready():
+            self.job.update(stage="Getting the Hindi speech model (one time)")
+            whisper.ensure()
+            self.job.update(stage="Recording")
+        words = transcribe.transcribe(audio[:cut], lang=lang)
         off = base / SR
         for w in words:
             w["s"], w["e"] = round(w["s"] + off, 2), round(w["e"] + off, 2)
@@ -492,11 +527,14 @@ class Session:
         """Where `src` really starts on the transcript clock. The video pieces and the audio feed keep separate
         clocks that drift apart, so transcribe the clip's own audio and line its words up with the live words.
         Local speech model only: no AI calls."""
-        key = lambda w: re.sub(r"[^a-z0-9]", "", w.lower())
+        key = lambda w: "".join(c for c in w.lower() if unicodedata.category(c)[0] in "LMN")   # letters and digits, in any script
         try:
             wav = src.with_suffix(".wav")
             media.extract_audio(src, wav)
-            heard = transcribe.transcribe(media.load_audio(wav))
+            own = media.load_audio(wav)
+            if self.lang not in ("", "en"):
+                own = own[:45 * SR]               # Whisper is slow: the first 45 seconds are plenty to line the clocks up by
+            heard = transcribe.transcribe(own, lang=self.lang or None)
             wav.unlink(missing_ok=True)
             with self.lock:
                 near = [w for w in self.words if guess - 15 <= w["s"] <= guess + dur + 15]

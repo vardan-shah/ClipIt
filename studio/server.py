@@ -66,9 +66,11 @@ def _startup():
     render.install_fonts()
     if _tools.missing():
         print("\n  " + _tools.HELP + "\n", flush=True)
-    if not transcribe.REMOTE and config.env("CLIPIT_FETCH_MODEL", "1") != "0":     # the speech model: fetched now, in the background, if it was never downloaded
+    if config.env("CLIPIT_FETCH_MODEL", "1") != "0":     # the speech models: fetched now, in the background, if they were never downloaded
         from . import fetch_model
-        threading.Thread(target=lambda: _quiet(fetch_model.ensure), daemon=True).start()
+        plan = fetch_model.startup_plan(remote_speech=bool(transcribe.REMOTE))
+        if plan:
+            threading.Thread(target=lambda: _quiet(lambda: fetch_model.fetch_plan(plan)), daemon=True).start()
     jobs.start()
     live.start()
     posting.start()

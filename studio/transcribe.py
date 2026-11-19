@@ -198,10 +198,45 @@ def _decode_remote(pieces: list) -> list:
     return [(p["tokens"], p["timestamps"]) for p in got]
 
 
-def transcribe(audio: np.ndarray, on_progress=None) -> list:
+def lengthen(words: list) -> list:
+    """A word lasts until the next one starts, capped so pauses stay pauses."""
+    for i, w in enumerate(words):
+        nxt = words[i + 1]["s"] if i + 1 < len(words) else w["e"] + 0.4
+        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e"], w["s"] + 0.6))), 2)
+    return words
+
+
+def choose_language(audio: np.ndarray, hint: str = "", note=None) -> str:
+    """The language spoken in a video, as a Whisper code. "en" is done by the English model here, anything else
+    (Hindi, Hinglish...) by Whisper. In this order: the language set in CLIPIT_LANGUAGE; the language YouTube says
+    the video is in (`hint`); else a few spots of the audio are listened to. If that cannot be done (the small model
+    cannot be downloaded, say), the video is treated as English and `note` is told, in plain words."""
+    from . import whisper
+    want = whisper.setting()
+    if want != "auto":
+        return want
+    known = whisper.normalize_lang(hint)
+    if known:
+        return known
+    try:
+        return whisper.detect(audio)
+    except Exception as e:  # noqa: BLE001 - never stop a video because its language could not be worked out
+        if note:
+            note(f"ClipIt could not tell which language is spoken, so it treated this video as English ({str(e)[-120:]}). "
+                 "Set CLIPIT_LANGUAGE=hi to use Hindi.")
+        return "en"
+
+
+def transcribe(audio: np.ndarray, on_progress=None, lang=None) -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio.
-    Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
+    Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped. `lang` is a language code: with
+    none, or English, the English model here does it; any other language is done by Whisper (studio/whisper.py)."""
     global _remote_down_until
+    if lang:
+        from . import whisper
+        lang = whisper.normalize_lang(lang) or "en"
+        if lang != "en":
+            return whisper.transcribe(audio, lang, on_progress)
     words = []
     todo = []
     for a, b in _chunks(audio):
@@ -264,8 +299,4 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
                 if words and words[-1]["w"] == w["w"] and words[-1]["s"] == w["s"]:
                     continue  # the model sometimes says the same word twice at the same moment
                 words.append(w)
-    # A word lasts until the next one starts, capped so pauses stay pauses.
-    for i, w in enumerate(words):
-        nxt = words[i + 1]["s"] if i + 1 < len(words) else w["e"] + 0.4
-        w["e"] = round(max(w["s"] + 0.08, min(nxt, max(w["e"], w["s"] + 0.6))), 2)
-    return words
+    return lengthen(words)

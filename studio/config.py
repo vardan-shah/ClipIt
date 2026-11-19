@@ -138,6 +138,13 @@ YT_TRANSCRIPT = env("CLIPIT_YT_TRANSCRIPT", "1") != "0"
 # the compact model for processors; a machine with a graphics card sets CLIPIT_ASR_MODEL to the full-precision one
 ASR_MODEL_NAME = env("CLIPIT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
 ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
+# The language spoken in the videos. "auto" (the default) finds it out for each video: English is done by the model
+# above, which is quick and very good; Hindi, Hinglish (Hindi with English words in it) and other languages are done
+# by Whisper, which knows about a hundred of them. Set "en" or "hi" to skip the guessing.
+LANGUAGE = env("CLIPIT_LANGUAGE", "auto").strip().lower() or "auto"
+# Which Whisper model does the non-English work: "turbo" (the best for Hindi; a download of about 560 MB), "small"
+# (lighter and quicker, but it makes more mistakes in Hindi), "medium" or "large-v3".
+WHISPER_MODEL = env("CLIPIT_WHISPER_MODEL", "turbo").strip().lower() or "turbo"
 DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'clipit.db').as_posix()}"
 
 for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR):
