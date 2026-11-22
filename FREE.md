@@ -176,18 +176,20 @@ a made-up stretch of a GTA stream with some lines in Devanagari and some in Roma
 | `Hindi and Hinglish: FAIL` | It could not answer. The line says why |
 
 `python -m studio.ai_check --quick` asks only the tiny question. The first Hindi question can take a minute while
-Ollama loads the model. Two to try on a 16 GB MacBook, by what Ollama's library pages say (I could not open them from
-the machine this was built on, so these are claims and not measurements; `ollama pull` shows the real size):
+Ollama loads the model. Two to try on a 16 GB MacBook. The sizes and the language lists below were read from the
+linked pages on 22 November 2026. They are what the makers say, not a measure of how well the model reads Hindi on
+your videos: the check above is what shows that.
 
 | Model | Download | Notes |
 |---|---|---|
-| `gemma3:12b` | about 8 GB | Google says it supports over 140 languages. Fits a 16 GB Mac with other heavy apps closed |
-| `llama3.1:8b` | about 4.9 GB | The default here. Hindi is one of its eight listed languages. The lighter of the two |
+| `gemma3:12b` | 8.2 GB, says [Ollama](https://ollama.com/library/gemma3:12b) | Google says it has "out-of-the-box support for over 35 languages and pretrained support for over 140" ([announcement](https://blog.google/technology/developers/gemma-3/)); that page does not name Hindi. Should fit a 16 GB Mac with other heavy apps closed (not tried on a Mac here) |
+| `llama3.1:8b` | 4.9 GB, says [Ollama](https://ollama.com/library/llama3.1:8b) | The default here. Meta lists eight languages and Hindi is one of them ([model card](https://huggingface.co/meta-llama/Llama-3.1-8B)). The lighter of the two |
 
-Newer models appear every few weeks (`gemma4` and `qwen3.5` were being talked about in November 2026), and the check
-will tell you whether one reads Hindi better. If the Mac starts to swap (Activity Monitor's memory pressure turns
-red), add `CLIPIT_AI_WINDOW_MIN=6` so each request carries less. Hindi letters take far more of a model's reading
-room than English ones, so ClipIt counts them for more when it tells Ollama how much to read.
+Newer models appear every few weeks (Ollama's library already lists `qwen3.5`, and people online are comparing it with
+Gemma 4). Neither was tried here. Pull any model you like and run the check: it tells you whether that one reads Hindi
+better. If the Mac starts to swap (Activity Monitor's memory pressure turns red), add `CLIPIT_AI_WINDOW_MIN=6` so each
+request carries less. Hindi letters take far more of a model's reading room than English ones, so ClipIt counts them
+for more when it tells Ollama how much to read.
 
 ## When something is wrong
 
