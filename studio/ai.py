@@ -543,8 +543,10 @@ def _ctx_for(text: str) -> int:
     """How many tokens Ollama should be told to read for this request. Ollama reads only that many and drops the
     rest without a word, which for a long transcript means losing the instructions. So: the set size, or the next
     size up (doubling) for a request that is longer. A token is counted as 2.8 characters, which is more than
-    the real size, plus room for the answer."""
-    need = int(len(text) / 2.8) + 1800
+    the real size, plus room for the answer. Hindi letters (and any other that is not plain English) take far
+    more tokens than that, so each of them is counted as two thirds of a token."""
+    plain = sum(1 for ch in text if ord(ch) < 128)
+    need = int(plain / 2.8 + (len(text) - plain) / 1.5) + 1800
     ctx = config.OLLAMA_NUM_CTX
     while ctx < need and ctx < config.OLLAMA_MAX_CTX:
         ctx = min(ctx * 2, config.OLLAMA_MAX_CTX)
@@ -562,12 +564,19 @@ def _ollama(spec, model, prompt, schema, timeout=None):
     shape = {"type": "object", "properties": {"items": _json_schema(schema)}, "required": ["items"]}
     options = {"temperature": 0.4, "num_ctx": _ctx_for(text)}
     headers = {"Authorization": f"Bearer {spec['key']}"} if spec["key"] else {}
+    no_thinking = not config.OLLAMA_THINK      # see config.OLLAMA_THINK: a model that can think is told not to
     r = None
     for fmt in (shape, "json", None):       # an older Ollama refuses a shape: it is asked again with plain JSON, then with nothing
         body = {"model": model, "stream": False, "messages": [{"role": "user", "content": text}], "options": options}
         if fmt:
             body["format"] = fmt
-        r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=body, headers=headers, timeout=timeout or 900)
+        for _ in range(2):
+            asked = dict(body, think=False) if no_thinking else body
+            r = httpx.post(f"{_ollama_root(spec['base'])}/api/chat", json=asked, headers=headers, timeout=timeout or 900)
+            if no_thinking and r.status_code in (400, 422) and "think" in (r.text or "").lower():
+                no_thinking = False         # this Ollama or model does not know the setting: the same question, without it
+                continue
+            break
         if r.status_code not in (400, 422):
             break
     if r.status_code != 200:

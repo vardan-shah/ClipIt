@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import alerts, auth, brain, config, creators, ctx, facecam, games, jobs, load, media, transcribe, usage, whisper
+from . import alerts, auth, brain, config, creators, ctx, facecam, games, jobs, load, media, roman, transcribe, usage, whisper
 
 # ":username!user@host PRIVMSG #channel :the message"
 _NICK = re.compile(r"(?m)^:([A-Za-z0-9_]{2,25})!")
@@ -567,18 +567,22 @@ class Session:
     def _triggers(self, new_words):
         """Built in: when someone says "clip" ("clip it", "clip that"), the AI looks at that moment as soon as its
         transcript is ready; people say it right after something worth clipping. Then the creator's own trigger
-        phrases from Setup, which clip straight away with no AI check."""
+        phrases from Setup, which clip straight away with no AI check.
+
+        Hindi speech comes back in Hindi letters (क्लिप कर), so the speech and the phrases are both written in Roman
+        letters before they are compared: "clip kar" typed in Setup matches "क्लिप कर" said on stream, and the other
+        way round."""
         for w in new_words or []:
-            if self.CLIP_WORDS.search(re.sub(r"[^a-z' ]", "", w["w"].lower())) and w["s"] - self.last_said > self.SAID_GAP \
-                    and not self.said:
+            said = re.sub(r"[^a-z' ]", "", roman.to_roman(w["w"]).lower())
+            if self.CLIP_WORDS.search(said) and w["s"] - self.last_said > self.SAID_GAP and not self.said:
                 self.said = {"t": w["s"], "why": 'Someone said "clip"'}
                 self.last_said = w["s"]
         phrases = [p.strip().lower() for p in self.settings.get("trigger_words", "").split(",") if p.strip()]
         if not phrases or not new_words:
             return
-        key = [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in new_words]
+        key = [re.sub(r"[^a-z0-9']", "", roman.to_roman(w["w"]).lower()) for w in new_words]
         for p in phrases:
-            parts = [re.sub(r"[^a-z0-9']", "", x) for x in p.split()]
+            parts = [re.sub(r"[^a-z0-9']", "", roman.to_roman(x).lower()) for x in p.split()]
             for i in range(len(key) - len(parts) + 1):
                 if key[i:i + len(parts)] == parts:
                     t = new_words[i]["s"]

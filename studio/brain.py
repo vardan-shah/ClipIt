@@ -122,7 +122,7 @@ def _tidy(c, s, e, game=None):
     """Whatever the AI answered, only this shape ever leaves here: clamped numbers, short link-free text."""
     cat = str(c.get("category", "other")).lower()
     tags = c.get("hashtags") if isinstance(c.get("hashtags"), list) else []
-    tags = [re.sub(r"\W", "", str(h))[:30] for h in tags if isinstance(h, (str, int))]
+    tags = [re.sub(r"\W", "", roman.to_roman(str(h)))[:30] for h in tags if isinstance(h, (str, int))]    # never in Hindi letters
     # The tags of the game are put on every post, whatever the AI wrote: people search for the game.
     for t in games.tags_of(game):
         t = re.sub(r"\W", "", str(t or ""))[:30]     # a tag with a space in it is not a hashtag
@@ -270,14 +270,24 @@ def _snap(clip, lines, words, min_len, max_len, duration):
 
 
 _PUNCH = re.compile(r"(?i)\b(?:no way|oh my god|omg|what the|holy|are you (?:serious|kidding)|let'?s go+|clutch|insane|"
-                    r"crazy|wtf|haha+|lol|unreal|wait what|bro+|dude|yaar|bhai)\b")
+                    r"crazy|wtf|haha+|lol|unreal|wait what|bro+|dude|yaar|bhai|"
+                    # what people say in Hindi and Hinglish when something happens, as it looks in Roman letters
+                    r"arre+|arey|abe|oye+|kya baat|kya kiya|kya kar diya|kya scene|pagal|ek number|gajab|gazab|zabardast|"
+                    r"kamaal|bavaal|bawaal|jhakaas|jhakkaas|faad|phaar|maar diya|mar gaya|bach gaya|baap re|oh teri|"
+                    r"are baap|he bhagwan|hey bhagwan)\b")
 _FILLER = {"the", "and", "but", "for", "with", "are", "was", "were", "this", "that", "its", "you", "she", "they", "our", "from",
-           "not", "just", "have", "has", "had", "will", "can", "about", "into", "out", "all", "then", "live", "full", "new"}
+           "not", "just", "have", "has", "had", "will", "can", "about", "into", "out", "all", "then", "live", "full", "new",
+           # the little words of Hindi, as they look in Roman letters, and what people call each other
+           "hai", "hain", "hoon", "tha", "thi", "mein", "aur", "yeh", "woh", "kya", "toh", "bhi", "hum", "tum", "aap", "kab",
+           "kyun", "kaise", "kar", "karo", "kiya", "diya", "gaya", "gayi", "nahi", "mat", "ek", "wala", "wali", "wale", "liye",
+           "saath", "bhai", "yaar", "arre", "abe", "oye", "bhaiya", "bas", "abhi", "aaj", "kal", "mera", "meri", "mere", "apna",
+           "apne", "iss", "uss", "ise", "use"}
 
 
 def _title_tags(title):
-    """Hashtags from the video's own title when there is no AI to write them: its real words, "GTA 6" as gta6."""
-    toks = re.findall(r"[A-Za-z0-9]+", str(title or ""))
+    """Hashtags from the video's own title when there is no AI to write them: its real words, "GTA 6" as gta6.
+    A title in Hindi letters is read in Roman letters first, so जीटीए 6 गेमप्ले gives gta6 and gameplay."""
+    toks = re.findall(r"[A-Za-z0-9]+", roman.to_roman(str(title or "")))
     merged = []
     for t in toks:
         if t.isdigit() and len(t) <= 2 and merged and merged[-1].isalpha() and len(merged[-1]) <= 4:
@@ -297,7 +307,9 @@ def _headline(words, z, start, end):
     question, a reaction like "no way"), or the generic pair if nothing stands out."""
     best, top = "", -1
     for l in make_lines([w for w in words if start <= w["s"] < end], z):
-        for frag in re.split(r"(?<=[.!?])\s+", l["text"]):
+        # Hindi in Devanagari is turned into Roman letters first: the reaction words above and the rules for
+        # picking a sentence then work on it the same way, and the hook and title are never in Hindi script.
+        for frag in re.split(r"(?<=[.!?])\s+", roman.to_roman(l["text"])):
             if len(frag.split()) < 2:
                 continue
             score = (2 * frag.count("!") + frag.count("?") + 2 * len(_PUNCH.findall(frag)) + (3 if l["loud"] else 0)
@@ -344,6 +356,32 @@ def _game_rules(game):
     return GAME_RULES.format(game=_safe(games.name_of(game) or str(game), 40), tags=tags)
 
 
+# Added to the prompt when the speech is Hindi or Hinglish, so that a model that is not sure about it reads it
+# the way a viewer in India hears it. It holds nothing that comes from the video.
+INDIA_NOTE = """
+The speech here is Hindi or Hinglish (Hindi and English mixed), written in Devanagari or in Roman letters. Read it
+the way a viewer in India hears it:
+- "yaar", "bhai", "arre", "abe", "oye", "kya baat hai", "pagal", "ek number", "gajab", "zabardast", "faad diya",
+  "mast", "mar gaya", "bach gaya" and "kya kar diya" are reactions. Laughing, shouting and a sudden "arre!" mark a
+  moment even when few words are said.
+- "nahi" is no, "mat" is don't, "chal" and "chalo" are let's go, "dekh" and "dekho" are look, "ruk" is wait.
+- Write the hook and the title the way the streamer talks: Hindi words in Roman letters, mixed with English where
+  they mix it ("BHAI YE KYA HUA", "Ek number clutch"). Never write Devanagari.
+- Never put swear words or abuse in the hook, title, description or hashtags. If the best line has one, use another
+  word from the same moment.
+"""
+
+
+def _india_note(text):
+    """The reading guide for Hindi and Hinglish, when the text is that, and nothing otherwise."""
+    return INDIA_NOTE if roman.looks_hindi(text) else ""
+
+
+def _rules(min_len, max_len, transcript):
+    """The rules and the transcript that end every prompt, with the Hindi and Hinglish guide in front when needed."""
+    return _india_note(transcript) + RULES.format(min_len=min_len, max_len=max_len, transcript=transcript)
+
+
 def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=15, max_len=60, log=print, game=None):
     z = loud_zscore(db)
     lines = make_lines(words, z)
@@ -364,7 +402,7 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
             continue
         prompt = (HEAD.format(title=_safe(title) or "unknown", uploader=_safe(uploader) or "unknown", n=per_window)
                   + extra
-                  + RULES.format(min_len=min_len, max_len=max_len, transcript=_fmt(chunk)))
+                  + _rules(min_len, max_len, _fmt(chunk)))
         try:
             out, used_model, spent = ask_ai(prompt, purpose="Video: finding clips")
             tokens += spent
@@ -397,7 +435,7 @@ def find_live_clips(words, z, now, chat=None, title="", uploader="", min_len=15,
     prompt = (HEAD.format(title=_safe(title) or "unknown", uploader=_safe(uploader) or "unknown", n=2)
               + _game_rules(game)
               + LIVE_NOTE.format(now=now)
-              + RULES.format(min_len=min_len, max_len=max_len, transcript=_fmt(lines)))
+              + _rules(min_len, max_len, _fmt(lines)))
     out, _model, spent = ask_ai(prompt, purpose="Live check")
     clips = []
     for c in sorted((c for c in out if isinstance(c, dict)), key=lambda c: -_num(c.get("score"))):
@@ -417,7 +455,7 @@ def describe(text, title="", uploader="", game=None, timeout=None):
     prompt = (f"A streamer's viewer clipped this moment by hand.\nVideo title: {_safe(title) or 'unknown'}\n"
               f"Channel: {_safe(uploader) or 'unknown'}\n\nReturn exactly one item describing it. Set start and end to 0."
               + _game_rules(game)
-              + RULES.format(min_len=0, max_len=0, transcript=_safe(text, 8000)))
+              + _rules(0, 0, _safe(text, 8000)))
     try:
         out, _m, _u = ask_ai(prompt, purpose="Hand clip: title and hook", timeout=timeout)
         if not out:
@@ -515,7 +553,7 @@ def judge_transcript(words, start, now, title="", uploader="", min_len=15, max_l
     prompt = (TRANSCRIPT_JUDGE.format(title=_safe(title) or "unknown", uploader=_safe(uploader) or "unknown", start=start, now=now,
                                       n=n, must=MUST_PICK if must else NOT_MUST)
               + _game_rules(game)
-              + RULES.format(min_len=min_len, max_len=max_len, transcript=_fmt(lines)))
+              + _rules(min_len, max_len, _fmt(lines)))
     out, _model, spent = ask_ai(prompt, purpose="Live: words judge", timeout=timeout)
     clips = []
     for c in sorted((c for c in out if isinstance(c, dict)), key=lambda c: -_num(c.get("score"))):

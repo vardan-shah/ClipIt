@@ -22,6 +22,13 @@ creator's live stream and clip the highlights while the stream is still running.
   speaks the OpenAI chat format. No key at all also works: clips are then picked by loudness.
 - **Free to run.** A model on your own computer through Ollama, free cloud plans chained so that one running out of
   requests hands over to the next, or no AI at all. See [FREE.md](FREE.md).
+- **English, Hindi and Hinglish.** It works out which language a video is in, writes Hindi down with Whisper, and
+  puts captions, hooks, titles and hashtags in Roman letters ("arre yaar ye kya hua"), with English words said in
+  Hindi spelled the English way. It knows the games played in India (BGMI, Free Fire and more), understands
+  "clip it" said in Hindi on a live stream, and tests your AI model on Hindi too. See
+  [FREE.md](FREE.md#hindi-hinglish-and-english).
+- **Made for game streams.** It knows which game a stream is, finds the facecam, and can skip ad breaks. See
+  [GAMING.md](GAMING.md).
 
 ## Quick start
 
@@ -36,7 +43,7 @@ installs it for you, it should ask you where to put it first ([AGENTS.md](AGENTS
 On Windows:
 
 ```bash
-git clone <this repository> C:\clipit
+git clone https://github.com/vardan-shah/ClipIt.git C:\clipit
 ```
 
 ```bash
@@ -46,7 +53,7 @@ cd C:\clipit
 On a Mac or Linux:
 
 ```bash
-git clone <this repository> ~/clipit
+git clone https://github.com/vardan-shah/ClipIt.git ~/clipit
 ```
 
 ```bash
@@ -63,10 +70,32 @@ Start the server:
 python -m studio.server
 ```
 
-The first start downloads the speech model by itself (about 480 MB, once).
+The first start downloads the speech model by itself (about 480 MB, once). The first video in Hindi downloads
+Whisper's Hindi model by itself too (about 560 MB, once).
 
 Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Go to **Settings, AI**, choose
 your AI service, paste your key and press **Save and test** (see [Choose your AI](#choose-your-ai)).
+
+### Free, on a Mac, with Ollama
+
+No key and no bill: the AI runs on your own computer. With the [Ollama](https://ollama.com/download) app open and
+`ffmpeg` installed (`brew install ffmpeg`), in the ClipIt folder:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+```bash
+cp .env.free.example .env
+```
+
+```bash
+python -m studio.ai_check
+```
+
+The last command asks the model a tiny question and then a stretch of Hindi and Hinglish, and says what worked. For
+streams in Hindi, if it says `Hindi and Hinglish: WEAK`, try `gemma3:12b` as [FREE.md](FREE.md#hindi-hinglish-and-english)
+describes. The whole walk-through, for a 16 GB MacBook, is in [FREE.md](FREE.md).
 
 ## Choose your AI
 
@@ -102,6 +131,8 @@ CLIPIT_AI_KEY=your-key-here
 - You pay the AI service directly for what you use. The **AI usage** page in the app shows how many requests and
   tokens each video took.
 - Speech to text does not use the AI service. It runs on your own machine, so audio never leaves it.
+- Hindi and Hinglish work with any of these, but small models differ a lot in how well they read them.
+  `python -m studio.ai_check` tests that too ([FREE.md](FREE.md#hindi-hinglish-and-english)).
 
 ## Settings
 
@@ -141,7 +172,8 @@ python -m studio.admin grant you@example.com
 | `tests/` | Tests that run against a throwaway copy of the app |
 | `deploy/`, `Dockerfile`, `docker-compose.yml` | One-server deployment with PostgreSQL and automatic HTTPS |
 
-Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and the Parakeet model.
+Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx`: the Parakeet model for
+English, and Whisper for Hindi and every other language.
 Data is kept per user: accounts in the database (SQLite on your own computer, PostgreSQL on a server), videos and
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.

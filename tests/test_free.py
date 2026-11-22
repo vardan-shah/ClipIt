@@ -131,6 +131,13 @@ try:
     check("ollama: a long request raises the reading size instead of being cut off", seen[0][1]["options"]["num_ctx"] == 32768, str(seen[0][1]["options"]))
 except ai.AIError as e:
     check("ollama: a long request raises the reading size instead of being cut off", False, str(e)[:100])
+reset(**{"11434": [OK_OLLAMA]})
+ai.call("llama3.1:8b", "x" * 30000, brain.SCHEMA, ai.fallbacks()[1][0])
+plain_ctx = seen[0][1]["options"]["num_ctx"]
+reset(**{"11434": [OK_OLLAMA]})
+ai.call("llama3.1:8b", "अ" * 30000, brain.SCHEMA, ai.fallbacks()[1][0])
+check("ollama: Hindi letters take more room than plain ones, so the same length asks for a bigger reading size",
+      (plain_ctx, seen[0][1]["options"]["num_ctx"]) == (16384, 32768), str((plain_ctx, seen[0][1]["options"]["num_ctx"])))
 try:
     ai.call("llama3.1:8b", "x" * 120000, brain.SCHEMA, ai.fallbacks()[1][0])
     check("ollama: a request too long for any reading size is refused, with what to change", False, "no error")
@@ -142,6 +149,25 @@ try:
     ai.call("nope", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
 except ai.AIError as e:
     check("ollama: a model that is not pulled is a refusal, not a retry", "HTTP 404" in str(e) and brain._how_it_failed(e) == "refused")
+
+# a model that can think (Qwen 3 and its newer versions) would write pages of reasoning first: it is told not to
+reset(**{"11434": [OK_OLLAMA]})
+ai.call("llama3.1:8b", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
+check("ollama: the model is told not to think, unless asked to", seen[0][1].get("think") is False, str(list(seen[0][1])))
+reset(**{"11434": [Reply(400, {"error": "\"llama3.1:8b\" does not support thinking"}), OK_OLLAMA]})
+out, _s, _w = ai.call("llama3.1:8b", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
+check("ollama: a version that does not know that setting is asked again at once without it, in the same form",
+      out == [CLIP] and len(seen) == 2 and seen[0][1].get("think") is False and "think" not in seen[1][1]
+      and seen[0][1]["format"] == seen[1][1]["format"], str([sorted(b) for _u, b, _h in seen]))
+reset(**{"11434": [Reply(400, {"error": "invalid format"}), Reply(400, {"error": "invalid format"}), OK_OLLAMA]})
+ai.call("llama3.1:8b", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
+check("ollama: the setting stays on while the form of the answer is stepped down", [b.get("think") for _u, b, _h in seen] == [False, False, False],
+      str([b.get("think") for _u, b, _h in seen]))
+config.OLLAMA_THINK = True
+reset(**{"11434": [OK_OLLAMA]})
+ai.call("llama3.1:8b", "hello", brain.SCHEMA, ai.fallbacks()[1][0])
+config.OLLAMA_THINK = False
+check("ollama: CLIPIT_OLLAMA_THINK=1 leaves the setting out so the model may think", "think" not in seen[0][1], str(list(seen[0][1])))
 
 
 def fake_get(url, **_k):

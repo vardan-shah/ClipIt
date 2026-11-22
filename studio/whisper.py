@@ -5,7 +5,8 @@ hundred languages, Hindi among them, and it copes with Hindi that has English wo
 the Hindi in Devanagari letters and leaves the English words as they are; the captions turn the Hindi into Roman
 letters later (studio/roman.py).
 
-Four things about the speech library were found by trying it on real Hindi speech, and are worked around here:
+Four things about the speech library were found by trying it on Hindi speech made by a speech synthesiser (no recording
+of a person was at hand), and are worked around here:
 
   * It stops a piece of speech after about six "tokens" a second, and Hindi needs about fifteen, so Hindi came out
     cut off, usually half a sentence. Padding the piece with silence up to just under 30 seconds raises that limit

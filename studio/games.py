@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import re
 
+from . import roman
+
 # name, words that mean it, tags to put on the post
 GAMES: list[tuple[str, list[str], list[str]]] = [
-    ("Grand Theft Auto VI", ["grand theft auto vi", "grand theft auto 6", "gta vi", "gta 6", "gta6"],
+    ("Grand Theft Auto VI", ["grand theft auto vi", "grand theft auto 6", "grand theft auto six", "gta vi", "gta 6",
+                             "gta six", "gta6"],
      ["GTA6", "GTA6Game", "ViceCity", "RockstarGames", "GTA6Launch"]),
     ("Grand Theft Auto V", ["grand theft auto v", "grand theft auto 5", "gta online", "gta v", "gta 5", "gta5", "gtav"],
      ["GTA5", "GTAOnline", "RockstarGames", "GTA5RP"]),
@@ -44,6 +47,23 @@ GAMES: list[tuple[str, list[str], list[str]]] = [
     ("Apex Legends", ["apex legends"], ["ApexLegends", "EApex"]),
     ("PUBG", ["pubg", "playerunknown"], ["PUBG", "BattleRoyale"]),
     ("Grand Theft Auto: San Andreas", ["grand theft auto san andreas", "gta sa"], ["GTA", "SanAndreas"]),
+    # Vice City is only the old game when the title says GTA before it: a GTA VI title that talks about its Vice City
+    # map is still GTA VI.
+    ("Grand Theft Auto: Vice City", ["grand theft auto vice city", "gta vice city", "gta vc"],
+     ["GTAViceCity", "ViceCity", "RockstarGames"]),
+    # The games Indian streams and clip channels are built around, mostly on a phone.
+    ("BGMI", ["bgmi", "battlegrounds mobile india", "battleground mobile india"],
+     ["BGMI", "BGMIIndia", "BattlegroundsMobileIndia", "Krafton"]),
+    ("Free Fire", ["free fire", "freefire", "free fire max", "garena free fire"],
+     ["FreeFire", "FreeFireMax", "Garena", "FFIndia"]),
+    ("Call of Duty: Mobile", ["call of duty mobile", "call of duty: mobile", "cod mobile", "codm"],
+     ["CODMobile", "CallOfDutyMobile", "CODM"]),
+    ("Roblox", ["roblox"], ["Roblox", "RobloxGaming"]),
+    ("Clash of Clans", ["clash of clans"], ["ClashOfClans", "COC", "Supercell"]),
+    ("Clash Royale", ["clash royale", "clash royal"], ["ClashRoyale", "Supercell"]),
+    ("Brawl Stars", ["brawl stars"], ["BrawlStars", "Supercell"]),
+    ("Genshin Impact", ["genshin impact", "genshin"], ["GenshinImpact", "Genshin", "HoYoverse"]),
+    ("eFootball", ["efootball", "e football"], ["eFootball", "PES", "Konami"]),
 ]
 
 # for a stream whose game nobody can name
@@ -59,7 +79,8 @@ _WORD = re.compile(r"[^a-z0-9]+")
 
 
 def _norm(text: str) -> str:
-    return _WORD.sub(" ", str(text or "").lower()).strip()
+    # Hindi titles (जीटीए 6, फ्री फायर) are written in Roman letters first, so that they meet the same names as English ones.
+    return _WORD.sub(" ", roman.to_roman(str(text or "")).lower()).strip()
 
 
 def detect(*texts) -> tuple[str | None, list[str]]:
@@ -94,4 +115,5 @@ def tags_of(game: str | None) -> list[str]:
     for name, aliases, tags in GAMES:
         if g == _norm(name) or g in {_norm(a) for a in aliases} or g in {_norm(t) for t in tags}:
             return list(tags)
-    return [re.sub(r"\W", "", str(game))[:30]] if re.sub(r"\W", "", str(game)) else []
+    tag = re.sub(r"\W", "", roman.to_roman(str(game)))[:30]       # a tag is never in Hindi letters
+    return [tag] if tag else []

@@ -143,7 +143,7 @@ ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
 # by Whisper, which knows about a hundred of them. Set "en" or "hi" to skip the guessing.
 LANGUAGE = env("CLIPIT_LANGUAGE", "auto").strip().lower() or "auto"
 # Which Whisper model does the non-English work: "turbo" (the best for Hindi; a download of about 560 MB), "small"
-# (lighter and quicker, but it makes more mistakes in Hindi), "medium" or "large-v3".
+# (quicker to run, but it makes more mistakes in Hindi, and its download is no smaller), "medium" or "large-v3".
 WHISPER_MODEL = env("CLIPIT_WHISPER_MODEL", "turbo").strip().lower() or "turbo"
 DATABASE_URL = env("DATABASE_URL") or f"sqlite:///{(DATA_DIR / 'clipit.db').as_posix()}"
 # Commercials and "be right back" screens are stitched into streams. A clip taken from one is worthless, so those
@@ -228,6 +228,10 @@ AI_WINDOW_MIN = float(env("CLIPIT_AI_WINDOW_MIN") or 0)
 # (Ollama's own default is 4096). ClipIt sets it on every request, and raises it for one that would not fit.
 OLLAMA_NUM_CTX = int(env("CLIPIT_OLLAMA_NUM_CTX") or 16384)
 OLLAMA_MAX_CTX = int(env("CLIPIT_OLLAMA_MAX_CTX") or 32768)
+# Some models (Qwen 3 and its newer versions, for one) write out pages of "thinking" before the answer. On a laptop
+# that is minutes of waiting, and picking clips does not need it, so ClipIt tells the model not to think. Set this to
+# 1 to let it think anyway.
+OLLAMA_THINK = env("CLIPIT_OLLAMA_THINK", "0") == "1"
 
 
 def ai_key() -> str:

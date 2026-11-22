@@ -6,6 +6,8 @@ that a caption is never drawn in Hindi or Urdu script. Urdu is written without m
 from a list and the rest are spelled from their letters: readable, if not always how a person would type it."""
 import re
 
+from . import loanwords
+
 _VOWELS = {"अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo", "ऋ": "ri", "ए": "e", "ऐ": "ai",
            "ओ": "o", "औ": "au", "ऑ": "o", "ऍ": "e"}
 _SIGNS = {"ा": "aa", "ि": "i", "ी": "ee", "ु": "u", "ू": "oo", "ृ": "ri", "े": "e", "ै": "ai", "ो": "o",
@@ -25,13 +27,41 @@ _WORDS = {"में": "mein", "मैं": "main", "हैं": "hain", "है
           "भी": "bhi", "ही": "hi", "की": "ki", "जी": "ji", "तो": "to", "हाँ": "haan", "हां": "haan", "यहाँ": "yahan",
           "यहां": "yahan", "वहाँ": "wahan", "वहां": "wahan", "कहाँ": "kahan", "कहां": "kahan", "थी": "thi",
           "रही": "rahi", "कभी": "kabhi", "अभी": "abhi", "सभी": "sabhi", "भाई": "bhai", "मुझे": "mujhe",
-          "तुम": "tum", "हम": "hum", "आप": "aap", "बहुत": "bahut", "अच्छा": "accha", "ठीक": "theek", "लिए": "liye"}
+          "तुम": "tum", "हम": "hum", "आप": "aap", "बहुत": "bahut", "अच्छा": "accha", "ठीक": "theek", "लिए": "liye",
+          "अरे": "arre", "आ": "aa", "चाहिए": "chahiye", "रुपये": "rupaye", "हिंदी": "hindi", "हिन्दी": "hindi"}
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 OTHER_SCRIPT = re.compile(r"[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]")   # Urdu / Arabic letters
 
 
 def has_hindi(text: str) -> bool:
     return bool(DEVANAGARI.search(text or ""))
+
+
+# The little words of Hindi, as people type them in Roman letters. Words that are also English (to, do, me, main,
+# par, tab, log, lag, us, ya, hi, jab, ko, mast, koi) are left out on purpose, so that an English stream is not
+# mistaken for a Hindi one.
+HINGLISH = frozenset("""
+hai hain hoon hota hoti hote hua hui hue tha thi nahi nahin nhi kya kyun kyu kyunki kaise kaisa kaisi kaun kab kahan
+kidhar idhar udhar yahan wahan ye yeh wo woh toh bhi aur mein mai ka ki ke se pe ne yaar yar bhai bhaiya arre arey abe oye
+chal chalo dekh dekho dekha kar karo kare karna karne karta karti kiya gaya gayi gaye bahut bohot bohat bhot accha achha acha
+theek thik matlab bilkul sahi galat bas abhi ab lekin magar phir agar isliye lagta lagti lagi raha rahi rahe wala wali wale
+mera meri mere tera teri tere apna apni apne hum tum aap mujhe tujhe usko isko unko mujhko chahiye chahta pata samajh bolo
+suno suna sab kuch paisa paise aaj kal baat kaam naam raat ek diya
+""".split())
+
+
+def looks_hindi(text: str) -> bool:
+    """Is this speech Hindi or Hinglish? Hindi letters are enough on their own. Hindi in Roman letters is told by how
+    many of its little words there are (kya, hai, nahi, yaar): at least three, and one in twelve or more, out of at
+    least eight words, so that a single "bhai" in an English stream does not count."""
+    text = text or ""
+    if len(DEVANAGARI.findall(text)) >= 3:
+        return True
+    tokens = re.findall(r"[a-z]+", text.lower())
+    if len(tokens) < 8:
+        return False
+    hits = sum(1 for t in tokens if t in HINGLISH)
+    return hits >= 3 and hits / len(tokens) >= 0.08
 
 
 def needs_roman(text: str) -> bool:
@@ -86,9 +116,16 @@ def _korean(run: str) -> str:
     return "".join(out)
 
 
+_ENDINGS = "।॥" + "".join(chr(0x0966 + i) for i in range(10))     # a full stop, or a number written in Devanagari
+
+
 def _word(w: str) -> str:
-    if w in _WORDS:
-        return _WORDS[w]
+    # A full stop or a number stuck to the end of a word (गेम।) must not hide the word from the two lists.
+    core = w.rstrip(_ENDINGS)
+    if core:
+        known = _WORDS.get(core) or loanwords.lookup(core)
+        if known:
+            return known + "".join(_OTHER.get(ch, ch) for ch in w[len(core):])
     # One unit per letter: [roman consonant or vowel, its vowel or None (None = a consonant with no vowel), is_cons]
     units, i = [], 0
     while i < len(w):
@@ -241,6 +278,7 @@ def to_roman(text: str) -> str:
     """Every Hindi and Urdu word in the text spelled in Roman letters. Anything else is left exactly as it is."""
     text = text or ""
     if DEVANAGARI.search(text):
+        text = loanwords.phrases(text)             # names said as several words (कॉल ऑफ ड्यूटी) are written first
         text = re.sub(_HINDI_RUN, lambda m: _word(m.group(0)), text)
     if OTHER_SCRIPT.search(text):
         text = text.replace("،", ",").replace("؟", "?").replace("۔", ".")

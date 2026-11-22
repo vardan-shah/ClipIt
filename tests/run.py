@@ -55,6 +55,7 @@ def main() -> int:
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
                 ("Hindi speech: choosing the language, Whisper, word timing", ["tests/test_hindi.py"]),
+                ("made for India: Hindi and Hinglish words, games, voice command, AI check", ["tests/test_india.py"]),
                 ("turning captions off and back on", ["tests/test_captions.py"]),
                 ("connecting YouTube and Instagram", ["tests/test_connect.py"]),
                 ("the ClipIt name, and settings from before the rename", ["tests/test_naming.py"]),

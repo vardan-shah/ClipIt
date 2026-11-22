@@ -7,9 +7,16 @@ reacting. Three changes make it work on those streams.
 ## 1. It knows which game it is
 
 `studio/games.py` reads the game from the stream's title, the video's title, the
-channel name, or the game the creator set. Twenty-three games are known by name,
+channel name, or the game the creator set. Thirty-three games are known by name,
 including GTA VI, GTA V, Fortnite, Minecraft, Valorant, Elden Ring, Palworld,
-Helldivers 2, Cyberpunk 2077, Marvel Rivals, The Finals, Rocket League and more.
+Helldivers 2, Cyberpunk 2077, Marvel Rivals, Rocket League and more, and the games
+played in India, mostly on phones: BGMI, Free Fire, Call of Duty: Mobile, Roblox,
+Clash of Clans, Clash Royale, Brawl Stars, Genshin Impact and eFootball.
+
+A title written in Hindi finds its game too (जीटीए 6, फ्री फायर, बीजीएमआई): it is
+written in Roman letters first, and then read like any other title. "GTA Vice City"
+is the old game, but a GTA VI title that talks about its Vice City map is still
+GTA VI.
 
 When the game is known, two things change.
 
